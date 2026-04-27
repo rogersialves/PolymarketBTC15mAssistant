@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resolve Trades — Polymarket</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="resolve.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="topbar-left">
+      <h1 class="logo">₿ Polymarket <span class="logo-accent">RESOLVE</span></h1>
+    </div>
+    <nav class="tf-tabs">
+      <span class="tf-divider"></span>
+      <a href="/"         class="tf-tab tf-tab-link">📊 Dashboard</a>
+      <a href="/dry.html" class="tf-tab tf-tab-link">📡 Scalp Monitor</a>
+      <a href="/resolve.html" class="tf-tab tf-tab-link active-page">🔄 Resolve</a>
+    </nav>
+    <div class="topbar-right">
+      <span id="jobBadge" class="job-badge idle">⬤ Aguardando</span>
+    </div>
+  </header>
+
+  <main class="resolve-main">
+
+    <!-- ── Controls Bar ── -->
+    <div class="resolve-controls">
+      <div class="ctrl-group">
+        <label class="ctrl-label">Período</label>
+        <div class="period-btns">
+          <button class="period-btn active" data-since="0">Tudo</button>
+          <button class="period-btn" data-since="3600">1 hora</button>
+          <button class="period-btn" data-since="10800">3 horas</button>
+          <button class="period-btn" data-since="21600">6 horas</button>
+          <button class="period-btn" data-since="43200">12 horas</button>
+          <button class="period-btn" data-since="86400">1 dia</button>
+          <button class="period-btn" data-since="259200">3 dias</button>
+          <button class="period-btn" data-since="604800">1 semana</button>
+        </div>
+      </div>
+
+      <div class="ctrl-group ctrl-group-options">
+        <label class="ctrl-check">
+          <input type="checkbox" id="optDryRun">
+          <span>Simulação (não salvar)</span>
+        </label>
+        <label class="ctrl-check">
+          <input type="checkbox" id="optReprocessAll">
+          <span>Reprocessar já resolvidos</span>
+        </label>
+      </div>
+
+      <div class="ctrl-group ctrl-actions">
+        <button id="btnRun" class="run-btn" onclick="runResolve()">▶ Executar</button>
+        <button id="btnClear" class="clear-btn" onclick="clearTerminal()">🗑 Limpar</button>
+      </div>
+    </div>
+
+    <!-- ── Stats Bar ── -->
+    <div class="resolve-stats" id="resolveStats">
+      <div class="rstat">
+        <span class="rstat-label">Processados</span>
+        <span class="rstat-val" id="statTotal">—</span>
+      </div>
+      <div class="rstat rstat-win">
+        <span class="rstat-label">✅ Resolvidos</span>
+        <span class="rstat-val" id="statUpdated">—</span>
+      </div>
+      <div class="rstat rstat-skip">
+        <span class="rstat-label">⏩ Pulados</span>
+        <span class="rstat-val" id="statSkipped">—</span>
+      </div>
+      <div class="rstat rstat-err">
+        <span class="rstat-label">💥 Erros</span>
+        <span class="rstat-val" id="statFailed">—</span>
+      </div>
+      <div class="rstat rstat-pnl">
+        <span class="rstat-label">P&L Total</span>
+        <span class="rstat-val" id="statPnl">—</span>
+      </div>
+      <div class="rstat">
+        <span class="rstat-label">Duração</span>
+        <span class="rstat-val" id="statDuration">—</span>
+      </div>
+    </div>
+
+    <!-- ── Terminal ── -->
+    <div class="resolve-terminal" id="terminal">
+      <div class="terminal-header">
+        <span class="terminal-title">📟 Output</span>
+        <span class="terminal-hint">Clique em Executar para iniciar</span>
+      </div>
+      <div class="terminal-body" id="terminalBody">
+        <span class="term-placeholder">$ node scripts/resolve-pending-trades.mjs</span>
+      </div>
+    </div>
+
+    <!-- ── History Table ── -->
+    <div class="resolve-panel" id="historyPanel">
+      <div class="resolve-panel-header">
+        <h2 class="resolve-panel-title">📋 Histórico de Trades no Período</h2>
+        <div class="history-filters">
+          <select id="filterStatus" onchange="applyHistoryFilter()">
+            <option value="">Todos</option>
+            <option value="pending">Pendentes</option>
+            <option value="won">Ganhos</option>
+            <option value="lost">Perdidos</option>
+          </select>
+          <select id="filterTf" onchange="applyHistoryFilter()">
+            <option value="">Todos TFs</option>
+            <option value="5m">5 min</option>
+            <option value="15m">15 min</option>
+          </select>
+        </div>
+      </div>
+      <div class="history-table-wrap">
+        <table class="history-table" id="historyTable">
+          <thead>
+            <tr>
+              <th>Data/Hora</th>
+              <th>TF</th>
+              <th>Indicador</th>
+              <th>Mercado</th>
+              <th>Side</th>
+              <th>Preço</th>
+              <th>Stake</th>
+              <th>Status</th>
+              <th>Resultado</th>
+              <th>P&L</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="10" class="table-empty">Selecione um período e clique em Executar</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+  <script src="resolve.js"></script>
+</body>
+</html>

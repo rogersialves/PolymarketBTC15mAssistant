@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scalp Monitor — BTC Polymarket Trading</title>
+  <meta name="description" content="DRY_RUN trading dashboard — ordens simuladas via Polymarket CLOB API">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="dry.css">
+</head>
+<body>
+  <!-- ── Top Navigation ── -->
+  <header id="topbar">
+    <div class="topbar-left">
+      <h1 class="logo">₿ Polymarket <span class="logo-accent">SCALP MONITOR</span></h1>
+    </div>
+    <nav class="tf-tabs">
+      <button class="tf-tab active" data-tf="5m">5 MIN</button>
+      <button class="tf-tab" data-tf="15m">15 MIN</button>
+      <span class="tf-divider"></span>
+      <a href="/" class="tf-tab tf-tab-link" title="Voltar ao Dashboard">📊 Dashboard</a>
+      <a href="/dry.html" class="tf-tab tf-tab-link active-page">📡 Scalp Monitor</a>
+      <a href="/resolve.html" class="tf-tab tf-tab-link">🔄 Resolve</a>
+      <button class="tf-tab tf-tab-config" onclick="openConfigModal()" title="Configurações">⚙️ Config</button>
+    </nav>
+    <div class="topbar-right">
+      <span id="tradingBadge" class="trading-badge dry-run">📡 SIM</span>
+      <span id="connectionStatus" class="status-dot disconnected"></span>
+      <span id="sessionInfo" class="session-text">--:--:-- | —</span>
+    </div>
+  </header>
+
+  <main class="dry-main">
+    <!-- ── Top Stats Bar ── -->
+    <div class="dry-stats-bar">
+      <div class="dry-stat">
+        <span class="dry-stat-label">Modo</span>
+        <span class="dry-stat-value" id="dryMode">📡 SIM</span>
+      </div>
+      <div class="dry-stat">
+        <span class="dry-stat-label">Mercado</span>
+        <span class="dry-stat-value" id="dryMarket">—</span>
+      </div>
+      <div class="dry-stat">
+        <span class="dry-stat-label">Time Left</span>
+        <span class="dry-stat-value timer" id="dryTimeLeft">--:--</span>
+      </div>
+      <div class="dry-stat">
+        <span class="dry-stat-label">Ordens Total</span>
+        <span class="dry-stat-value" id="dryTotalOrders">0</span>
+      </div>
+      <div class="dry-stat">
+        <span class="dry-stat-label">Saldo USDC</span>
+        <span class="dry-stat-value" id="dryBalance">—</span>
+      </div>
+      <div class="dry-stat">
+        <span class="dry-stat-label">Max Stake</span>
+        <span class="dry-stat-value" id="dryMaxStake">—</span>
+      </div>
+    </div>
+    <div id="dryDataWarning" class="dry-data-warning" hidden></div>
+
+    <!-- ── Two Column Layout: Atividade | [Carteiras + Indicadores] ── -->
+    <div class="dry-columns">
+      <!-- Column 1: Real-time activity -->
+      <section class="dry-panel dry-activity">
+        <h2 class="dry-panel-title">⚡ Atividade em Tempo Real</h2>
+
+        <!-- Consensus Edge Status -->
+        <div id="dryCeStatus"></div>
+
+        <!-- Scalp Force Cards (5m + 15m) -->
+        <div class="dry-sub-section">
+          <h3 class="dry-sub-title">⚡ Scalp Force <span class="dry-sub-hint">Simulação dedicada</span></h3>
+          <div id="dryScalpCards" class="dry-scalp-cards">
+            <span class="dim">Aguardando dados...</span>
+          </div>
+          <div id="dryScalpRequirements" class="dry-scalp-requirements">
+            <span class="dim">Aguardando checklist Scalp Force...</span>
+          </div>
+        </div>
+
+        <!-- Scalp Operations Strip (replaces Último Trade Resolvido) -->
+        <div class="dry-sub-section">
+          <h3 class="dry-sub-title">📊 Operações Scalp</h3>
+          <div id="dryScalpStrip" class="dry-scalp-strip">
+            <span class="dim">Nenhuma operação scalp registrada ainda...</span>
+          </div>
+          <div id="dryLastResolved" class="dry-last-resolved dry-last-resolved-compact">
+            <span class="dim">Aguardando resolução hold-to-expiry...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Column 2: Wallets + Bitcoin Up or Down below -->
+      <div class="dry-wallets-column">
+        <section class="dry-panel dry-wallets-section">
+          <h2 class="dry-panel-title">💰 Carteira 5 MIN
+            <span class="dry-wallet-summary-badges" id="dryWalletSummary5m"></span>
+          </h2>
+          <div id="dryWalletGrid5m" class="dry-wallet-grid">
+            <span class="dim">Aguardando trades resolvidos...</span>
+          </div>
+        </section>
+        <section class="dry-panel dry-wallets-section">
+          <h2 class="dry-panel-title">💰 Carteira 15 MIN
+            <span class="dry-wallet-summary-badges" id="dryWalletSummary15m"></span>
+          </h2>
+          <div id="dryWalletGrid15m" class="dry-wallet-grid">
+            <span class="dim">Aguardando trades resolvidos...</span>
+          </div>
+        </section>
+
+        <!-- Bitcoin Up or Down (below wallets) -->
+        <section class="dry-panel dry-indicators-panel">
+          <div class="dry-indicators-header">
+            <h2 id="dryDashTitle" class="market-title">Connecting...</h2>
+            <div class="timer-row">
+              <span class="label">Market:</span>
+              <span id="dryDashSlug" class="value dim">—</span>
+              <span class="spacer"></span>
+              <span class="label">Time Left:</span>
+              <span id="dryDashTimeLeft" class="timer">--:--</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Groups side by side -->
+          <div class="ind-body-row">
+            <div class="indicators-grid" id="dryIndicatorsGrid">
+              <div class="ind-row" title="Consenso (>55% bias claro)"><span class="ind-label">TA Predict</span><span class="ind-value" id="dval-taPredict">—</span></div>
+              <div class="ind-row" title="Tendência (verde=alta, red=baixa)"><span class="ind-label">Heiken Ashi</span><span class="ind-value" id="dval-heiken">—</span></div>
+              <div class="ind-row" title="Momentum (>70 OB, <30 OS)"><span class="ind-label">RSI</span><span class="ind-value" id="dval-rsi">—</span></div>
+              <div class="ind-row" title="Direção/Força"><span class="ind-label">MACD</span><span class="ind-value" id="dval-macd">—</span></div>
+              <div class="ind-row" title="Agressão micro (delta 1m e 3m)"><span class="ind-label">Delta 1/3</span><span class="ind-value" id="dval-delta">—</span></div>
+              <div class="ind-row" title="Âncora (UP/DOWN/FLAT)"><span class="ind-label">VWAP</span><span class="ind-value" id="dval-vwap">—</span></div>
+              <div class="ind-row" title="Limites (%B + Squeeze)"><span class="ind-label">Bollinger</span><span class="ind-value" id="dval-bollinger">—</span></div>
+              <div class="ind-row" title="Super oscilador"><span class="ind-label">Stoch RSI</span><span class="ind-value" id="dval-stochRsi">—</span></div>
+              <div class="ind-row" title="Rastreador clássico"><span class="ind-label">EMA 9/21</span><span class="ind-value" id="dval-ema">—</span></div>
+              <div class="ind-row" title="Dinheiro real (On-Balance Volume)"><span class="ind-label">OBV</span><span class="ind-value" id="dval-obv">—</span></div>
+              <div class="ind-row" title="Volatilidade média do período"><span class="ind-label">ATR</span><span class="ind-value" id="dval-atr">—</span></div>
+            </div>
+
+            <div class="ind-vsep"></div>
+
+            <div class="poly-section">
+              <div class="poly-prices">
+                <span class="up-price">↑ UP <span id="dpolyUp">—</span></span>
+                <span class="poly-sep">|</span>
+                <span class="down-price">↓ DOWN <span id="dpolyDown">—</span></span>
+              </div>
+              <div class="poly-row"><span class="label">Liquidity</span><span class="value" id="dpolyLiquidity">—</span></div>
+              <div class="poly-row"><span class="label">Price to Beat</span><span class="value" id="dpriceToBeat">—</span></div>
+              <div class="poly-row"><span class="label">Current Price</span><span class="value" id="dcurrentPrice">—</span></div>
+            </div>
+
+            <div class="ind-vsep"></div>
+
+            <div class="exchanges-section">
+              <div class="exchange-row"><span class="ex-name">Binance</span><span class="ex-price" id="dexBinancePrice">—</span><span class="ex-vol" id="dexBinanceVol">—</span></div>
+              <div class="exchange-row"><span class="ex-name">Coinbase</span><span class="ex-price" id="dexCoinbasePrice">—</span><span class="ex-vol" id="dexCoinbaseVol">—</span></div>
+              <div class="exchange-row"><span class="ex-name">Kraken</span><span class="ex-price" id="dexKrakenPrice">—</span><span class="ex-vol" id="dexKrakenVol">—</span></div>
+              <div class="oracle-row">
+                <span class="label">Oracle Lag</span><span class="value" id="doracleLag">—</span>
+                <span class="label">Spread</span><span class="value" id="doracleSpread">—</span>
+                <span class="label">Bin vs Oracle</span><span class="value" id="dbinVsOracle">—</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+    </div>
+
+    <!-- ── Trade Log (moved to bottom of page) ── -->
+    <section class="dry-panel dry-log-panel dry-log-bottom">
+      <h2 class="dry-panel-title">📋 Log de Ordens DRY_RUN
+        <button id="dryClearLog" class="dry-clear-btn" title="Limpar log">🗑</button>
+      </h2>
+      <div class="dry-log-table-wrapper">
+        <table class="dry-log-table" id="dryLogTable">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Hora</th>
+              <th>TF</th>
+              <th>Indicador</th>
+              <th>Side</th>
+              <th>Preço</th>
+              <th>Shares</th>
+              <th>USD</th>
+              <th>Token</th>
+              <th>Status</th>
+              <th>Result</th>
+              <th>P&L</th>
+            </tr>
+          </thead>
+          <tbody id="dryLogBody">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
+      </div>
+      <div class="dry-log-footer">
+        <span id="dryLogCount">0 ordens registradas</span>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── Config Modal ── -->
+  <div id="configOverlay" class="config-overlay" onclick="closeConfigModal()">
+    <div class="config-modal" onclick="event.stopPropagation()">
+      <div class="config-header">
+        <h2>⚙️ Configurações de Trading</h2>
+        <button class="config-close" onclick="closeConfigModal()">✕</button>
+      </div>
+
+      <!-- Mode Toggle -->
+      <div class="config-section">
+        <h3 class="config-section-title">Modo de Operação</h3>
+        <div class="config-mode-row">
+          <div class="config-mode-info">
+            <span id="configModeLabel" class="config-mode-label">📡 SCALP MONITOR (SIM)</span>
+            <span id="configModeDesc" class="config-mode-desc">Ordens simuladas — sem execução real</span>
+          </div>
+          <label class="config-switch config-switch-danger">
+            <input type="checkbox" id="configDryRunToggle" onchange="handleModeToggle(this)">
+            <span class="config-slider"></span>
+          </label>
+        </div>
+        <div id="configWalletInfo" class="config-wallet-info"></div>
+      </div>
+
+      <!-- Indicators -->
+      <div class="config-section">
+        <h3 class="config-section-title">Indicadores Ativos</h3>
+
+        <!-- Timeframe tabs -->
+        <div class="config-tf-tabs">
+          <button class="config-tf-tab active" id="tab5m"  onclick="switchIndicatorTab('5m')">₿ 5 min</button>
+          <button class="config-tf-tab"        id="tab15m" onclick="switchIndicatorTab('15m')">₿ 15 min</button>
+          <span class="config-section-count" id="configIndicatorCount"></span>
+          <button class="config-select-all"  onclick="toggleAllIndicators(true)">Todos</button>
+          <button class="config-select-none" onclick="toggleAllIndicators(false)">Nenhum</button>
+        </div>
+
+        <div id="configIndicatorGrid5m"  class="config-indicator-grid config-tab-pane active-pane"><!-- JS --></div>
+        <div id="configIndicatorGrid15m" class="config-indicator-grid config-tab-pane"><!-- JS --></div>
+      </div>
+
+      <!-- Scalp Force Advanced Parameters -->
+      <div class="config-section">
+        <h3 class="config-section-title">⚡ Scalp Force — Parâmetros Avançados <span class="dry-sub-hint">Simulação dedicada</span></h3>
+        <div id="configScalpSection5m"  class="config-scalp-section config-tab-pane active-pane"><!-- JS --></div>
+        <div id="configScalpSection15m" class="config-scalp-section config-tab-pane"><!-- JS --></div>
+      </div>
+
+      <!-- Save -->
+      <div class="config-footer">
+        <button class="config-save-btn" onclick="saveConfig()">💾 Salvar Configuração</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="dry.js?v=20260426-token-wallets"></script>
+</body>
+</html>

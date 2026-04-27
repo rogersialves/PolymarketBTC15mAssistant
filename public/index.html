@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polymarket Crypto — Opções de Mercado</title>
+  <meta name="description" content="Mercados de cripto disponíveis na Polymarket por timeframe de candle e fonte de dados">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Top Navigation ── -->
+  <header id="topbar">
+    <div class="topbar-left">
+      <h1 class="logo">₿ Polymarket <span class="logo-accent">Markets</span></h1>
+    </div>
+    <nav class="tf-tabs">
+      <a href="/" class="tf-tab tf-tab-link active-page">🏠 Home</a>
+      <a href="/dry.html" class="tf-tab tf-tab-link" title="Scalp Monitor — simulação em tempo real">📡 Scalp Monitor</a>
+      <a href="/resolve.html" class="tf-tab tf-tab-link" title="Resolver trades pendentes">🔄 Resolve</a>
+    </nav>
+    <div class="topbar-right">
+      <span id="clockDisplay" class="session-text">--:--:--</span>
+    </div>
+  </header>
+
+  <!-- ── Main ── -->
+  <main class="home-main">
+
+    <!-- Hero -->
+    <div class="home-hero">
+      <h2 class="home-title">Mercados Cripto disponíveis na Polymarket</h2>
+      <p class="home-subtitle">Segregados por timeframe de candle · Fonte: Binance (corretora) ou Chainlink (oracle)</p>
+    </div>
+
+    <!-- Timeframe Grid -->
+    <div class="tf-grid">
+
+      <!-- ══════════════════════════════════════
+           CANDLE 1 MINUTO — BINANCE
+      ══════════════════════════════════════ -->
+      <div class="tf-section">
+        <div class="tf-section-header">
+          <div class="tf-label">
+            <span class="tf-icon">⏱️</span>
+            <span class="tf-title">Candle 1 MINUTO</span>
+          </div>
+          <div class="tf-badges">
+            <span class="source-badge binance">BINANCE</span>
+          </div>
+        </div>
+
+        <p class="tf-description">
+          Resolução baseada no <b>preço Close ou High/Low da vela de 1 minuto</b> do par USDT na Binance.
+          Mercados diários (noon ET) e mensais disponíveis para BTC, ETH, SOL e XRP.
+        </p>
+
+        <div class="market-cards">
+
+          <!-- Card 1 -->
+          <div class="market-card">
+            <div class="mc-header">
+              <span class="mc-type">ABOVE STRIKE — DIÁRIO (noon)</span>
+              <span class="mc-liq high">~$1.95M agregado</span>
+            </div>
+            <p class="mc-desc">
+              <b>"Bitcoin above ___ on [data]?"</b> — Resolve <b>Yes</b> se o Close da vela 1m às 12:00 ET for maior que o strike.
+              Múltiplos strikes por dia (ex.: $74K, $76K, $78K…). ETH também disponível com liquidez similar.
+            </p>
+            <div class="mc-footer">
+              <div class="crypto-tags">
+                <span class="crypto-tag btc">BTC</span>
+                <span class="crypto-tag eth">ETH</span>
+              </div>
+              <span class="mc-source">Binance 1m Close (noon)</span>
+            </div>
+            <a href="https://polymarket.com/event/bitcoin-above-on-april-26" target="_blank" rel="noopener" class="mc-action-btn">Abrir no Polymarket ↗</a>
+          </div>
+
+          <!-- Card 2 -->
+          <div class="market-card">
+            <div class="mc-header">
+              <span class="mc-type">FAIXA DE PREÇO — DIÁRIO (noon)</span>
+              <span class="mc-liq medium">~$100K–$450K agregado</span>
+            </div>
+            <p class="mc-desc">
+              <b>"Bitcoin price on [data]?"</b> — Resolve para a faixa (bracket) onde o preço Close da vela 1m às 12:00 ET se encontrar.
+              Disponível para BTC, ETH, SOL e XRP (liquidez decresce nessa ordem).
+            </p>
+            <div class="mc-footer">
+              <div class="crypto-tags">
+                <span class="crypto-tag btc">BTC</span>
+                <span class="crypto-tag eth">ETH</span>
+                <span class="crypto-tag sol">SOL</span>
+                <span class="crypto-tag xrp">XRP</span>
+              </div>
+              <span class="mc-source">Binance 1m Close (noon)</span>
+            </div>
+            <a href="https://polymarket.com/event/bitcoin-price-on-april-26" target="_blank" rel="noopener" class="mc-action-btn">Abrir no Polymarket ↗</a>
+          </div>
+
+          <!-- Card 3 -->
+          <div class="market-card">
+            <div class="mc-header">
+              <span class="mc-type">REACH / DIP — MENSAL</span>
+              <span class="mc-liq medium">$55K–$330K / strike</span>
+            </div>
+            <p class="mc-desc">
+              <b>"Will Bitcoin reach/dip to $X in April?"</b> — Resolve <b>imediatamente</b> assim que qualquer vela 1m tocar o
+              High ≥ strike (reach) ou Low ≤ strike (dip) durante o mês inteiro. Válido até 30 de abril.
+            </p>
+            <div class="mc-footer">
+              <div class="crypto-tags">
+                <span class="crypto-tag btc">BTC</span>
+                <span class="crypto-tag eth">ETH</span>
+              </div>
+              <span class="mc-source">Binance 1m High / Low</span>
+            </div>
+            <a href="https://polymarket.com/event/what-price-will-bitcoin-hit-in-april-2026" target="_blank" rel="noopener" class="mc-action-btn">Abrir no Polymarket ↗</a>
+          </div>
+
+          <!-- Card 4 -->
+          <div class="market-card">
+            <div class="mc-header">
+              <span class="mc-type">REACH — ANUAL (até Dez 2026)</span>
+              <span class="mc-liq low">$34K–$120K / strike</span>
+            </div>
+            <p class="mc-desc">
+              <b>"Will Bitcoin reach $X by Dec 31, 2026?"</b> — Resolve imediatamente se qualquer vela 1m tocar o strike
+              em qualquer momento até 31/12/2026. Strikes: $100K, $130K, $150K, $180K, $200K+.
+            </p>
+            <div class="mc-footer">
+              <div class="crypto-tags">
+                <span class="crypto-tag btc">BTC</span>
+              </div>
+              <span class="mc-source">Binance 1m High</span>
+            </div>
+            <a href="https://polymarket.com/event/when-will-bitcoin-hit-150k" target="_blank" rel="noopener" class="mc-action-btn">Abrir no Polymarket ↗</a>
+          </div>
+
+        </div><!-- /.market-cards -->
+      </div><!-- /.tf-section 1m -->
+
+
+      <!-- ══════════════════════════════════════
+           CANDLE 5 MINUTOS — CHAINLINK
+      ══════════════════════════════════════ -->
+      <div class="tf-section">
+        <div class="tf-section-header">
+          <div class="tf-label">
+            <span class="tf-icon">⏱️</span>
+            <span class="tf-title">Candle 5 MINUTOS</span>
+          </div>
+          <div class="tf-badges">
+            <span class="source-badge chainlink">CHAINLINK</span>
+          </div>
+        </div>
+
+        <p class="tf-description">
+          Resolução baseada no <b>data stream BTC/USD da Chainlink</b> (não é a Binance).
+          Janelas de exatamente 5 minutos ao longo do dia — ex.: 1:25–1:30 PM, 1:30–1:35 PM, etc.
+          Disponível para BTC, ETH, BNB, SOL, XRP e outros pares.
+        </p>
+
+        <div class="market-cards">
+
+          <div class="market-card">
+            <div class="mc-header">
+              <span class="mc-type">UP / DOWN — JANELA 5 MIN</span>
+              <span class="mc-liq medium">~$30K / janela</span>
+            </div>
+            <p class="mc-desc">
+              <b>"Bitcoin Up or Down - [Data] [HH:MM–HH:MM] ET"</b> — Resolve <b>Up</b> se o preço BTC/USD
+              da Chainlink no <em>fim</em> da janela for ≥ ao preço no <em>início</em>. Caso contrário, resolve <b>Down</b>.
+              Disponível também para ETH, BNB, SOL, XRP e outros pares.
+            </p>
+            <div class="mc-footer">
+              <div class="crypto-tags">
+                <span class="crypto-tag btc">BTC</span>
+                <span class="crypto-tag eth">ETH</span>
+                <span class="crypto-tag sol">SOL</span>
+                <span class="crypto-tag xrp">XRP</span>
+              </div>
+              <span class="mc-source">Chainlink BTC/USD Stream</span>
+            </div>
+            <a href="https://polymarket.com/crypto" target="_blank" rel="noopener" class="mc-action-btn">Ver no Polymarket ↗</a>
+          </div>
+
+        </div><!-- /.market-cards -->
+
+        <div class="tf-note">
+          <span class="tf-note-icon">🔗</span>
+          <span>
+            Fonte oficial:
+            <a href="https://data.chain.link/streams/btc-usd" target="_blank" rel="noopener" class="tf-link">data.chain.link/streams/btc-usd</a>
+            — Mesma fonte do mercado de 15 min deste projeto (oracle Chainlink, não Binance).
+          </span>
+        </div>
+      </div><!-- /.tf-section 5m -->
+
+
+      <!-- ══════════════════════════════════════
+           CANDLE 15 MINUTOS — CHAINLINK
+      ══════════════════════════════════════ -->
+      <div class="tf-section tf-highlight">
+        <div class="tf-section-header">
+          <div class="tf-label">
+            <span class="tf-icon">⏰</span>
+            <span class="tf-title">Candle 15 MINUTOS</span>
+            <span class="tf-badge-this">◀ ESTE PROJETO</span>
+          </div>
+          <div class="tf-badges">
+            <span class="source-badge chainlink">CHAINLINK</span>
+          </div>
+        </div>
+
+        <p class="tf-description">
+          Resolução baseada no <b>data stream BTC/USD da Chainlink</b> (não é a Binance).
+          Janelas de exatamente 15 minutos ao longo do dia — ex.: 7:30–7:45 AM, 7:45–8:00 AM, etc.
+          Apenas BTC disponível neste formato.
+        </p>
+
+        <div class="market-cards">
+
+          <div class="market-card mc-active">
+            <div class="mc-header">
+              <span class="mc-type">UP / DOWN — JANELA 15 MIN</span>
+              <span class="mc-liq medium">~$40K / janela</span>
+            </div>
+            <p class="mc-desc">
+              <b>"Bitcoin Up or Down - [Data] [HH:MM–HH:MM] ET"</b> — Resolve <b>Up</b> se o preço BTC/USD
+              da Chainlink no <em>fim</em> da janela for ≥ ao preço no <em>início</em>. Caso contrário, resolve <b>Down</b>.
+              Volume médio de trading por janela: ~$850. Liquidez provida por market makers: ~$40K.
+            </p>
+            <div class="mc-footer">
+              <div class="crypto-tags">
+                <span class="crypto-tag btc">BTC</span>
+              </div>
+              <span class="mc-source">Chainlink BTC/USD Stream</span>
+            </div>
+            <a href="/dry.html" class="mc-action-btn">📡 Acessar Scalp Monitor →</a>
+          </div>
+
+        </div>
+
+        <div class="tf-note">
+          <span class="tf-note-icon">🔗</span>
+          <span>
+            Fonte oficial:
+            <a href="https://data.chain.link/streams/btc-usd" target="_blank" rel="noopener" class="tf-link">data.chain.link/streams/btc-usd</a>
+            — Atenção: preço Chainlink pode divergir do preço Binance por latência do oracle (lag típico: 1–30s).
+          </span>
+        </div>
+      </div><!-- /.tf-section 15m -->
+
+
+      <!-- ══════════════════════════════════════
+           CANDLE 1 HORA — BINANCE
+      ══════════════════════════════════════ -->
+      <div class="tf-section">
+        <div class="tf-section-header">
+          <div class="tf-label">
+            <span class="tf-icon">🕐</span>
+            <span class="tf-title">Candle 1 HORA</span>
+          </div>
+          <div class="tf-badges">
+            <span class="source-badge binance">BINANCE</span>
+            <span class="mc-liq-badge high">Maior Liquidez Intraday</span>
+          </div>
+        </div>
+
+        <p class="tf-description">
+          Resolução baseada no <b>preço Close da vela de 1 hora</b> do par USDT na Binance.
+          Os mercados de <b>1 hora são os mais líquidos da categoria intraday</b> (~$2.3M por evento para BTC e ETH).
+          Publicados hora a hora ao longo do dia.
+        </p>
+
+        <div class="market-cards">
+
+          <!-- Card 1 -->
+          <div class="market-card">
+            <div class="mc-header">
+              <span class="mc-type">ABOVE STRIKE — INTRADAY (por hora)</span>
+              <span class="mc-liq high">~$2.3M / evento</span>
+            </div>
+            <p class="mc-desc">
+              <b>"Bitcoin above ___ on April 26, 1PM ET?"</b> — Resolve <b>Yes</b> se o Close da vela 1h
+              (que termina no horário indicado) for maior que o strike. Múltiplos strikes por hora
+              (ex.: $79,200 · $79,600 · $80,000). ETH equivalente com mesma estrutura.
+            </p>
+            <div class="mc-footer">
+              <div class="crypto-tags">
+                <span class="crypto-tag btc">BTC</span>
+                <span class="crypto-tag eth">ETH</span>
+              </div>
+              <span class="mc-source">Binance 1h Close</span>
+            </div>
+          </div>
+
+          <!-- Card 2 -->
+          <div class="market-card">
+            <div class="mc-header">
+              <span class="mc-type">UP / DOWN — CANDLE 1H</span>
+              <span class="mc-liq low">Baixo volume</span>
+            </div>
+            <p class="mc-desc">
+              <b>"ETH Up or Down - April 26, 12PM ET"</b> — Resolve <b>Up</b> se Close ≥ Open da vela 1h.
+              Disponível para ETH e SOL além de BTC. Volume de trading tipicamente baixo neste formato.
+            </p>
+            <div class="mc-footer">
+              <div class="crypto-tags">
+                <span class="crypto-tag btc">BTC</span>
+                <span class="crypto-tag eth">ETH</span>
+                <span class="crypto-tag sol">SOL</span>
+              </div>
+              <span class="mc-source">Binance 1h Close vs Open</span>
+            </div>
+          </div>
+
+        </div><!-- /.market-cards -->
+      </div><!-- /.tf-section 1h -->
+
+    </div><!-- /.tf-grid -->
+
+    <!-- ── Tabela resumo ── -->
+    <div class="home-summary-table">
+      <h3 class="home-summary-title">📊 Resumo por Liquidez</h3>
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Timeframe</th>
+            <th>Cripto</th>
+            <th>Tipo</th>
+            <th>Fonte</th>
+            <th>Liquidez estimada</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="row-high">
+            <td>1</td><td><span class="tf-pill">1H</span></td><td><span class="crypto-tag btc">BTC</span></td>
+            <td>Above Strike</td><td><span class="source-pill binance-pill">Binance</span></td><td class="liq-val high">~$2.38M</td>
+          </tr>
+          <tr class="row-high">
+            <td>2</td><td><span class="tf-pill">1H</span></td><td><span class="crypto-tag eth">ETH</span></td>
+            <td>Above Strike</td><td><span class="source-pill binance-pill">Binance</span></td><td class="liq-val high">~$2.27M</td>
+          </tr>
+          <tr class="row-medium">
+            <td>3</td><td><span class="tf-pill">1M</span></td><td><span class="crypto-tag btc">BTC</span></td>
+            <td>Above Strike (noon)</td><td><span class="source-pill binance-pill">Binance</span></td><td class="liq-val medium">~$1.95M</td>
+          </tr>
+          <tr class="row-medium">
+            <td>4</td><td><span class="tf-pill">1M</span></td><td><span class="crypto-tag btc">BTC</span></td>
+            <td>Reach / Dip Mensal</td><td><span class="source-pill binance-pill">Binance</span></td><td class="liq-val medium">$55K–$330K</td>
+          </tr>
+          <tr class="row-medium">
+            <td>5</td><td><span class="tf-pill">1M</span></td><td><span class="crypto-tag eth">ETH</span></td>
+            <td>Above Strike + Reach</td><td><span class="source-pill binance-pill">Binance</span></td><td class="liq-val medium">~$700K</td>
+          </tr>
+          <tr class="row-low">
+            <td>6</td><td><span class="tf-pill">15M</span></td><td><span class="crypto-tag btc">BTC</span></td>
+            <td>Up / Down (janela)</td><td><span class="source-pill chainlink-pill">Chainlink</span></td><td class="liq-val low">~$40K</td>
+          </tr>
+          <tr class="row-low">
+            <td>7</td><td><span class="tf-pill">1H</span></td><td><span class="crypto-tag sol">SOL</span></td>
+            <td>Up / Down</td><td><span class="source-pill binance-pill">Binance</span></td><td class="liq-val low">Baixa</td>
+          </tr>
+          <tr class="row-low">
+            <td>8</td><td><span class="tf-pill">1M</span></td><td><span class="crypto-tag sol">SOL</span> <span class="crypto-tag xrp">XRP</span></td>
+            <td>Faixa de Preço</td><td><span class="source-pill binance-pill">Binance</span></td><td class="liq-val low">Muito baixa</td>
+          </tr>
+          <tr class="row-none">
+            <td>—</td><td><span class="tf-pill unavail-pill">5M</span></td><td>—</td>
+            <td>—</td><td>—</td><td class="liq-val none">Não disponível</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+
+  <footer id="footer">
+    <span>created by @krajekis</span>
+  </footer>
+
+  <script>
+    // Live clock (ET offset)
+    function updateClock() {
+      const now = new Date();
+      const etStr = now.toLocaleTimeString('pt-BR', {
+        timeZone: 'America/New_York',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+      document.getElementById('clockDisplay').textContent = etStr + ' ET';
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+  </script>
+
+</body>
+</html>

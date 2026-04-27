@@ -1,0 +1,22 @@
+{
+  "name": "polyassistent",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/start-clean.mjs",
+    "web": "node src/server.js",
+    "cli": "node src/index.js",
+    "test:scalp-force": "node scripts/scalp-force-smoke.mjs"
+  },
+  "dependencies": {
+    "@polymarket/clob-client": "^5.8.1",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.11.1",
+    "express": "^5.2.1",
+    "https-proxy-agent": "^7.0.6",
+    "socks-proxy-agent": "^8.0.5",
+    "undici": "^6.21.3",
+    "ws": "^8.18.0"
+  }
+}

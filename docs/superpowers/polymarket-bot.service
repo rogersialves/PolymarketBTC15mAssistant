@@ -1,0 +1,19 @@
+[Unit]
+Description=Polymarket BTC 15m Assistant Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/PolymarketBTC15mAssistant
+EnvironmentFile=/opt/PolymarketBTC15mAssistant/.env
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polymarket-bot
+
+[Install]
+WantedBy=multi-user.target
