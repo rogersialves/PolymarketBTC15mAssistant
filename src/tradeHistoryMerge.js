@@ -63,3 +63,9 @@ export function writeTradeHistoryFileAtomic(filePath, history) {
   fs.writeFileSync(tmpPath, JSON.stringify(history, null, 2), "utf8");
   fs.renameSync(tmpPath, filePath);
 }
+
+export async function writeTradeHistoryFileAtomicAsync(filePath, history) {
+  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  await fs.promises.writeFile(tmpPath, JSON.stringify(history, null, 2), "utf8");
+  await fs.promises.rename(tmpPath, filePath);
+}

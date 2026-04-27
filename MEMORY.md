@@ -335,6 +335,37 @@ Error: CLOB price timeout after 4000ms
 
 ---
 
+## Sessão: 27/04/2026 (tarde) — Degradação por timeouts simultâneos
+
+### Sintoma
+Logs mostravam todos os endpoints externos expirando ao mesmo tempo:
+- `api.binance.com` timeout 4000ms → cooldown 15s
+- `api.binance.us` timeout ~980ms (sobra do `binanceFailoverBudgetMs=5000` após o primeiro)
+- Coinbase / Kraken tickers timeout 4000ms
+- Gamma events timeout 4000ms
+- `client.event_loop_lag: 1943ms` no client SSE
+- Loops contínuos de 5s → sensação de "travamento"
+
+### Diagnóstico
+1. **Causa primária externa:** rede local degradada — VPN/DNS/ISP bloqueando ou lento. App não crasha (cache fallback do Bug #17 funciona), mas degrada visivelmente.
+2. **Causa secundária no código:** `binanceFailoverBudgetMs=5000` deixava só ~1s para o segundo endpoint após o primeiro consumir 4s — failover sempre falhava.
+3. **Causa terciária (Melhoria #11):** `writeTradeHistoryFileAtomic` usava `fs.writeFileSync` síncrono no flush debounced → bloqueava event loop em bursts de trade.
+
+### Correções aplicadas
+
+1. **`src/config.js`** — `binanceFailoverBudgetMs` default 5000 → **9000ms** (> 2× `httpTimeoutMs` para o segundo endpoint ter chance real).
+
+2. **`.env.example`** — adicionados `BINANCE_FAILOVER_BUDGET_MS=9000`, `POLYMARKET_SNAPSHOT_CLOB_BUDGET_MS=1500`, `TRADE_HISTORY_SAVE_DEBOUNCE_MS=250` para tornar os tunables visíveis.
+
+3. **`src/tradeHistoryMerge.js`** — adicionada `writeTradeHistoryFileAtomicAsync` usando `fs.promises.writeFile` + `fs.promises.rename`. A versão síncrona foi mantida (compatibilidade com outros consumidores se houver).
+
+4. **`src/polyTrader.js`** — `_flushHistoryNow` agora `async` e usa o writer assíncrono. `_scheduleHistoryFlush` aguarda o flush via `await`. `_saveHistory()` continua síncrono na chamada (apenas agenda o timer).
+
+### Verificação ANTES de mexer em código novamente
+Sempre testar conectividade primeiro — se `curl -m 5 https://api.binance.com/api/v3/ping` falhar do shell do usuário, **nenhuma mudança no código resolve**. O problema está na rede/firewall/VPN.
+
+---
+
 ## Melhorias Pendentes (ainda não aplicadas)
 
 ### 🟡 Melhoria #9 — `resolve-pending-trades.mjs` sem timeout no `fetch`

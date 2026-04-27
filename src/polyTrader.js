@@ -6,7 +6,7 @@
 import { ethers } from "ethers";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
-import { mergeTradeHistoryRecords, readTradeHistoryFile, writeTradeHistoryFileAtomic } from "./tradeHistoryMerge.js";
+import { mergeTradeHistoryRecords, readTradeHistoryFile, writeTradeHistoryFileAtomicAsync } from "./tradeHistoryMerge.js";
 
 // ── Ethers v6 → v5 Signer Adapter ──
 // The @polymarket/clob-client expects ethers v5 _signTypedData, but we use v6
@@ -66,13 +66,13 @@ export class PolyTrader {
     }
   }
 
-  // ── Save orderHistory to disk ──
-  _flushHistoryNow() {
+  // ── Save orderHistory to disk (async — não bloqueia event loop) ──
+  async _flushHistoryNow() {
     try {
       const diskHistory = readTradeHistoryFile(this._historyPath);
       const merged = mergeTradeHistoryRecords(diskHistory, this.orderHistory);
       this.orderHistory = merged;
-      writeTradeHistoryFileAtomic(this._historyPath, this.orderHistory);
+      await writeTradeHistoryFileAtomicAsync(this._historyPath, this.orderHistory);
     } catch (err) {
       console.warn(`⚠️  [PolyTrader] Erro ao salvar histórico: ${err.message}`);
     }
@@ -80,7 +80,7 @@ export class PolyTrader {
 
   _scheduleHistoryFlush() {
     if (this._historySaveTimer) return;
-    this._historySaveTimer = setTimeout(() => {
+    this._historySaveTimer = setTimeout(async () => {
       this._historySaveTimer = null;
       if (this._historySaveInProgress) {
         this._historySavePending = true;
@@ -88,7 +88,7 @@ export class PolyTrader {
       }
       this._historySaveInProgress = true;
       try {
-        this._flushHistoryNow();
+        await this._flushHistoryNow();
       } finally {
         this._historySaveInProgress = false;
         if (this._historySavePending) {
