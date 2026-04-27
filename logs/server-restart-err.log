@@ -1,0 +1,12 @@
+⚠️  Coinbase ticker falhou: Coinbase ticker timeout after 4000ms
+⚠️  Kraken ticker falhou: Kraken ticker timeout after 4000ms
+⚠️  Coinbase ticker falhou: Coinbase ticker timeout after 4000ms
+⚠️  Kraken ticker falhou: Kraken ticker timeout after 4000ms
+⚠️  Coinbase ticker falhou: Coinbase ticker timeout after 4000ms
+⚠️  Kraken ticker falhou: Kraken ticker timeout after 4000ms
+[watchdog] client.wallet_modal_open_unified {"tf":"5m","data":{"tf":"5m","name":"Top3 5m","historyTotal":7,"renderedRows":7,"durationMs":4},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+[watchdog] client.wallet_modal_open_unified {"tf":"5m","data":{"tf":"5m","name":"TA Predict","historyTotal":600,"renderedRows":500,"durationMs":151},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+[watchdog] client.wallet_modal_open_unified {"tf":"5m","data":{"tf":"5m","name":"Delta 3m Fade 5m","historyTotal":17,"renderedRows":17,"durationMs":5},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+[watchdog] client.wallet_modal_open_unified {"tf":"5m","data":{"tf":"15m","name":"Delta 3m Fade 15m","historyTotal":6,"renderedRows":6,"durationMs":4},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+[watchdog] client.wallet_modal_open_unified {"tf":"5m","data":{"tf":"5m","name":"Delta 3m Fade 5m","historyTotal":17,"renderedRows":17,"durationMs":6},"ip":"::ffff:127.0.0.1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+[watchdog] client.event_loop_lag {"tf":"5m","data":{"lagMs":45897,"activeTf":"5m","lastGoodAt":1777242411710},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
