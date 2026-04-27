@@ -769,10 +769,18 @@ export class PolyTrader {
 
   // ── Get current status for dashboard ──
   getStatus() {
-    // Include ALL orders (both live and dry-run), sorted newest first
-    const recentTrades = this.orderHistory
-      .slice()
-      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    // Cap broadcast payload: copying + sorting the entire orderHistory (often
+    // 90k+ entries) on every tick was ~the dominant CPU + GC + bandwidth cost.
+    // Frontend dedups by orderId, so once a trade has scrolled past the recent
+    // window it does not need to be re-broadcast every second; status changes
+    // (resolution/fills) land on the most-recent entries anyway.
+    const RECENT_TRADES_LIMIT = 100;
+    const tail = this.orderHistory.length > RECENT_TRADES_LIMIT * 2
+      ? this.orderHistory.slice(-RECENT_TRADES_LIMIT * 2)
+      : this.orderHistory.slice();
+    const recentTrades = tail
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, RECENT_TRADES_LIMIT);
     return {
       initialized: this.initialized,
       dryRun: this.dryRun,

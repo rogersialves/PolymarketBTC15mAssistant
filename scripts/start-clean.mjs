@@ -70,8 +70,20 @@ function cleanupPort(port) {
 }
 
 function startServer() {
+  // --max-old-space-size: cap V8 old-space at 2.5 GB. Box has 4 GB total; this
+  //   leaves ~1.5 GB for OS + WS clients + buffers and gives headroom for the
+  //   server.js process to fail loudly via OOM instead of swap-thrashing.
+  // --heapsnapshot-near-heap-limit: dump up to 3 .heapsnapshot files into CWD
+  //   when V8 approaches the heap limit, so we can post-mortem actual leaks.
+  const nodeOptions = [
+    process.env.NODE_OPTIONS || "",
+    "--max-old-space-size=2560",
+    "--heapsnapshot-near-heap-limit=3"
+  ].filter(Boolean).join(" ");
+
   const child = spawn("node", ["src/server.js"], {
-    stdio: "inherit"
+    stdio: "inherit",
+    env: { ...process.env, NODE_OPTIONS: nodeOptions }
   });
 
   child.on("exit", (code, signal) => {

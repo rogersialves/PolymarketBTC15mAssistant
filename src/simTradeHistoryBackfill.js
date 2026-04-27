@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { appendCsvRow } from "./utils.js";
+import { readTradeHistoryFile } from "./tradeHistoryMerge.js";
 
 export const SIM_TRADES_HEADER = [
   "timestamp", "market_slug", "window_min", "indicator", "side",
@@ -13,15 +14,6 @@ function toNum(value, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function readJsonArray(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) return [];
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
 
 function splitCsvLine(line) {
   const out = [];
@@ -65,10 +57,10 @@ function writeCsv(filePath, headers, rows) {
   fs.writeFileSync(filePath, `${lines.join("\n")}\n`, "utf8");
 }
 
-function csvExistingCounts(csvPath) {
-  const counts = new Map();
-  if (!fs.existsSync(csvPath)) return counts;
+const csvCountsCache = new Map();
 
+function buildCsvCounts(csvPath) {
+  const counts = new Map();
   const raw = fs.readFileSync(csvPath, "utf8").trim();
   if (!raw) return counts;
 
@@ -89,6 +81,24 @@ function csvExistingCounts(csvPath) {
     counts.set(key, (counts.get(key) || 0) + 1);
   }
 
+  return counts;
+}
+
+function csvExistingCounts(csvPath) {
+  let stat;
+  try {
+    stat = fs.statSync(csvPath);
+  } catch {
+    csvCountsCache.delete(csvPath);
+    return new Map();
+  }
+  const cached = csvCountsCache.get(csvPath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    // Return a fresh copy: callers mutate the counts (decrement during scan).
+    return new Map(cached.counts);
+  }
+  const counts = buildCsvCounts(csvPath);
+  csvCountsCache.set(csvPath, { mtimeMs: stat.mtimeMs, size: stat.size, counts: new Map(counts) });
   return counts;
 }
 
@@ -188,12 +198,30 @@ export function tradeToSimCsvRow(trade) {
   ];
 }
 
-export function buildTradeHistoryLookup(history, { timeframeLabel, allIndicators, scalpIndicators } = {}) {
-  const lookup = new Map();
-  const trades = Array.isArray(history) ? history : [];
+// WeakMap keyed by the (immutable) cached history array — when the underlying
+// file changes, readTradeHistoryFile returns a new array and old caches GC.
+const candidatesCache = new WeakMap();
+const lookupCache = new WeakMap();
 
-  for (const trade of trades) {
-    if (!isBackfillableTrade(trade, { timeframeLabel, allIndicators, scalpIndicators })) continue;
+function getBackfillCandidates(history, options) {
+  const trades = Array.isArray(history) ? history : [];
+  const tfKey = options?.timeframeLabel || "*";
+  let byTf = candidatesCache.get(trades);
+  if (byTf?.has(tfKey)) return byTf.get(tfKey);
+  if (!byTf) {
+    byTf = new Map();
+    candidatesCache.set(trades, byTf);
+  }
+  const candidates = trades
+    .filter(trade => isBackfillableTrade(trade, options))
+    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  byTf.set(tfKey, candidates);
+  return candidates;
+}
+
+function buildLookupFromCandidates(candidates) {
+  const lookup = new Map();
+  for (const trade of candidates) {
     const key = rowKey({
       marketSlug: trade.metadata.marketSlug,
       indicator: trade.metadata.indicator,
@@ -204,12 +232,32 @@ export function buildTradeHistoryLookup(history, { timeframeLabel, allIndicators
     if (!lookup.has(key)) lookup.set(key, []);
     lookup.get(key).push(trade);
   }
-
-  for (const bucket of lookup.values()) {
-    bucket.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-  }
-
+  // Candidates are already sorted by timestamp from getBackfillCandidates.
   return lookup;
+}
+
+export function buildTradeHistoryLookup(history, { timeframeLabel, allIndicators, scalpIndicators } = {}) {
+  const trades = Array.isArray(history) ? history : [];
+  const tfKey = timeframeLabel || "*";
+  let byTf = lookupCache.get(trades);
+  if (byTf?.has(tfKey)) {
+    // Return a deep-cloned bucket structure — callers (.shift()) mutate it.
+    const cached = byTf.get(tfKey);
+    const fresh = new Map();
+    for (const [k, bucket] of cached) fresh.set(k, bucket.slice());
+    return fresh;
+  }
+  if (!byTf) {
+    byTf = new Map();
+    lookupCache.set(trades, byTf);
+  }
+  const candidates = getBackfillCandidates(trades, { timeframeLabel, allIndicators, scalpIndicators });
+  const lookup = buildLookupFromCandidates(candidates);
+  byTf.set(tfKey, lookup);
+  // Return a clone so consumer-side .shift() doesn't drain the cached buckets.
+  const fresh = new Map();
+  for (const [k, bucket] of lookup) fresh.set(k, bucket.slice());
+  return fresh;
 }
 
 export function enrichSimRowsWithTradeHistory(rows, history, options = {}) {
@@ -235,6 +283,12 @@ export function enrichSimRowsWithTradeHistory(rows, history, options = {}) {
   });
 }
 
+// Track inputs of last call that returned a no-op result (no rows missing
+// token_id, no new columns). The function is called every engine tick, so
+// short-circuiting the read+parse when nothing has changed since the last
+// no-op is a major hot-path saving on a 750 KB CSV + 2.3 MB history.
+const noopFingerprintCache = new Map();
+
 export function persistSimCsvTokenColumns({
   historyPath,
   csvPath,
@@ -245,6 +299,18 @@ export function persistSimCsvTokenColumns({
   logger = null
 } = {}) {
   if (!fs.existsSync(csvPath)) {
+    return { updated: 0, addedColumns: false, file: path.basename(csvPath), timeframeLabel };
+  }
+
+  let csvStat = null, historyStat = null;
+  try { csvStat = fs.statSync(csvPath); } catch {}
+  try { historyStat = fs.statSync(historyPath); } catch {}
+  const fingerprint = noopFingerprintCache.get(csvPath);
+  if (
+    fingerprint && csvStat && historyStat
+    && fingerprint.csvMtimeMs === csvStat.mtimeMs && fingerprint.csvSize === csvStat.size
+    && fingerprint.historyMtimeMs === historyStat.mtimeMs && fingerprint.historySize === historyStat.size
+  ) {
     return { updated: 0, addedColumns: false, file: path.basename(csvPath), timeframeLabel };
   }
 
@@ -269,7 +335,7 @@ export function persistSimCsvTokenColumns({
     return row;
   });
 
-  const history = readJsonArray(historyPath);
+  const history = readTradeHistoryFile(historyPath);
   const lookup = buildTradeHistoryLookup(history, { timeframeLabel, allIndicators, scalpIndicators });
 
   let updated = 0;
@@ -308,8 +374,19 @@ export function persistSimCsvTokenColumns({
   }
 
   if (!addedColumns && updated === 0) {
+    if (csvStat && historyStat) {
+      noopFingerprintCache.set(csvPath, {
+        csvMtimeMs: csvStat.mtimeMs,
+        csvSize: csvStat.size,
+        historyMtimeMs: historyStat.mtimeMs,
+        historySize: historyStat.size
+      });
+    }
     return { updated: 0, addedColumns: false, file: path.basename(csvPath), timeframeLabel };
   }
+  // Inputs changed and the function did real work — invalidate fingerprint
+  // so the next call doesn't short-circuit on stale state.
+  noopFingerprintCache.delete(csvPath);
 
   if (dryRun) {
     logger?.(`[DRY_RUN] ${path.basename(csvPath)}: token columns ${addedColumns ? "seriam criadas" : "ok"}; ${updated} token(s) seria(m) preenchido(s)`);
@@ -332,11 +409,9 @@ export function backfillSimTradesFromHistory({
   dryRun = false,
   logger = null
 } = {}) {
-  const history = readJsonArray(historyPath);
+  const history = readTradeHistoryFile(historyPath);
   const existing = csvExistingCounts(csvPath);
-  const candidates = history
-    .filter(trade => isBackfillableTrade(trade, { timeframeLabel, allIndicators, scalpIndicators }))
-    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  const candidates = getBackfillCandidates(history, { timeframeLabel, allIndicators, scalpIndicators });
 
   const missing = [];
   for (const trade of candidates) {

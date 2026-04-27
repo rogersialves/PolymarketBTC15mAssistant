@@ -7104,3 +7104,131 @@
 {"ts":"2026-04-27T04:14:01.870Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":5666}
 {"ts":"2026-04-27T04:14:01.875Z","event":"slow_tick","timeframe":"15m","durationMs":5671,"marketSlug":"btc-updown-15m-1777262400"}
 {"ts":"2026-04-27T04:14:01.878Z","event":"loop_slow","loopId":421,"durationMs":5677}
+{"ts":"2026-04-27T04:53:45.135Z","event":"client.event_loop_lag","tf":"5m","data":{"lagMs":39335,"activeTf":"5m","lastGoodAt":1777265608772},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T04:53:48.962Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":3820}
+{"ts":"2026-04-27T04:53:50.498Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":5355}
+{"ts":"2026-04-27T04:53:50.509Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":5360}
+{"ts":"2026-04-27T04:53:50.694Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":5553}
+{"ts":"2026-04-27T04:53:50.704Z","event":"slow_tick","timeframe":"5m","durationMs":5563,"marketSlug":"btc-updown-5m-1777265400"}
+{"ts":"2026-04-27T04:53:50.744Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":5599}
+{"ts":"2026-04-27T04:53:50.770Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":5623}
+{"ts":"2026-04-27T04:53:50.776Z","event":"slow_tick","timeframe":"15m","durationMs":5631,"marketSlug":"btc-updown-15m-1777265100"}
+{"ts":"2026-04-27T04:53:50.779Z","event":"loop_slow","loopId":8,"durationMs":5638}
+{"ts":"2026-04-27T04:55:13.910Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":3159}
+{"ts":"2026-04-27T04:55:17.297Z","event":"loop_stalled","loopId":72,"ageMs":6550,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T04:55:17.567Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":6818}
+{"ts":"2026-04-27T04:55:17.583Z","event":"slow_tick","timeframe":"5m","durationMs":6836,"marketSlug":"btc-updown-5m-1777265700"}
+{"ts":"2026-04-27T04:55:17.604Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":6850}
+{"ts":"2026-04-27T04:55:17.606Z","event":"slow_tick","timeframe":"15m","durationMs":6855,"marketSlug":"btc-updown-15m-1777265100"}
+{"ts":"2026-04-27T04:55:17.610Z","event":"loop_slow","loopId":72,"durationMs":6863}
+{"ts":"2026-04-27T04:55:19.428Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 7s","ageMs":6550,"loopId":72},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T04:55:29.832Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":5884}
+{"ts":"2026-04-27T04:55:30.584Z","event":"loop_stalled","loopId":76,"ageMs":6639,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T04:55:31.309Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":7364}
+{"ts":"2026-04-27T04:55:31.318Z","event":"slow_tick","timeframe":"5m","durationMs":7373,"marketSlug":"btc-updown-5m-1777265700"}
+{"ts":"2026-04-27T04:55:31.858Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":7911}
+{"ts":"2026-04-27T04:55:31.862Z","event":"slow_tick","timeframe":"15m","durationMs":7915,"marketSlug":"btc-updown-15m-1777265100"}
+{"ts":"2026-04-27T04:55:31.867Z","event":"loop_slow","loopId":76,"durationMs":7921}
+{"ts":"2026-04-27T04:55:32.897Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 7s","ageMs":6639,"loopId":76},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T04:55:42.375Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":5672}
+{"ts":"2026-04-27T04:55:44.668Z","event":"loop_stalled","loopId":77,"ageMs":7970,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T04:55:48.528Z","event":"loop_slow","loopId":77,"durationMs":11830}
+{"ts":"2026-04-27T04:55:51.464Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 8s","ageMs":7970,"loopId":77},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T04:55:54.284Z","event":"tick_reentry_blocked","timeframe":"5m"}
+{"ts":"2026-04-27T04:55:54.285Z","event":"tick_reentry_blocked","timeframe":"15m"}
+{"ts":"2026-04-27T04:56:04.324Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":27623}
+{"ts":"2026-04-27T04:56:04.406Z","event":"slow_tick","timeframe":"5m","durationMs":27708,"marketSlug":"btc-updown-5m-1777265700"}
+{"ts":"2026-04-27T04:56:05.645Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":28940}
+{"ts":"2026-04-27T04:56:05.649Z","event":"slow_tick","timeframe":"15m","durationMs":28946,"marketSlug":"btc-updown-15m-1777265100"}
+{"ts":"2026-04-27T04:56:16.547Z","event":"loop_slow","loopId":80,"durationMs":10779}
+{"ts":"2026-04-27T04:56:16.908Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":11140}
+{"ts":"2026-04-27T04:56:16.909Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":11139}
+{"ts":"2026-04-27T04:56:16.914Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":11143}
+{"ts":"2026-04-27T04:56:16.918Z","event":"slow_tick","timeframe":"5m","durationMs":11150,"marketSlug":"btc-updown-5m-1777265700"}
+{"ts":"2026-04-27T04:56:16.922Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":11150}
+{"ts":"2026-04-27T04:56:16.924Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":11149}
+{"ts":"2026-04-27T04:56:16.930Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":11154}
+{"ts":"2026-04-27T04:56:16.943Z","event":"slow_tick","timeframe":"15m","durationMs":11171,"marketSlug":"btc-updown-15m-1777265100"}
+{"ts":"2026-04-27T04:56:29.238Z","event":"loop_stalled","loopId":81,"ageMs":8016,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T04:56:37.008Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":15786}
+{"ts":"2026-04-27T04:56:37.015Z","event":"slow_tick","timeframe":"5m","durationMs":15793,"marketSlug":"btc-updown-5m-1777265700"}
+{"ts":"2026-04-27T04:56:37.028Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":15803}
+{"ts":"2026-04-27T04:56:37.033Z","event":"slow_tick","timeframe":"15m","durationMs":15808,"marketSlug":"btc-updown-15m-1777265100"}
+{"ts":"2026-04-27T04:56:37.036Z","event":"loop_slow","loopId":81,"durationMs":15814}
+{"ts":"2026-04-27T04:56:47.917Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 8s","ageMs":8016,"loopId":81},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T04:56:52.617Z","event":"loop_stalled","loopId":82,"ageMs":6995,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T04:56:59.732Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":14110}
+{"ts":"2026-04-27T04:56:59.733Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":14108}
+{"ts":"2026-04-27T04:56:59.740Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":14114}
+{"ts":"2026-04-27T04:56:59.745Z","event":"slow_tick","timeframe":"5m","durationMs":14123,"marketSlug":"btc-updown-5m-1777265700"}
+{"ts":"2026-04-27T04:56:59.750Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":14123}
+{"ts":"2026-04-27T04:56:59.751Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":14123}
+{"ts":"2026-04-27T04:56:59.757Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":14127}
+{"ts":"2026-04-27T04:56:59.762Z","event":"slow_tick","timeframe":"15m","durationMs":14135,"marketSlug":"btc-updown-15m-1777265100"}
+{"ts":"2026-04-27T04:56:59.764Z","event":"loop_slow","loopId":82,"durationMs":14142}
+{"ts":"2026-04-27T04:57:15.822Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 7s","ageMs":6995,"loopId":82},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T04:57:43.945Z","event":"loop_stalled","loopId":83,"ageMs":13722,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T04:57:43.947Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":13723}
+{"ts":"2026-04-27T04:57:43.947Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":13716}
+{"ts":"2026-04-27T04:57:43.952Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":13716}
+{"ts":"2026-04-27T04:57:43.958Z","event":"slow_tick","timeframe":"5m","durationMs":13735,"marketSlug":"btc-updown-5m-1777265700"}
+{"ts":"2026-04-27T04:57:43.963Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":13721}
+{"ts":"2026-04-27T04:57:43.964Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":13714}
+{"ts":"2026-04-27T04:57:43.970Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":13718}
+{"ts":"2026-04-27T04:57:43.973Z","event":"slow_tick","timeframe":"15m","durationMs":13731,"marketSlug":"btc-updown-15m-1777265100"}
+{"ts":"2026-04-27T04:57:43.976Z","event":"loop_slow","loopId":83,"durationMs":13753}
+{"ts":"2026-04-27T04:58:34.036Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 14s","ageMs":13722,"loopId":83},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T04:59:00.037Z","event":"loop_stalled","loopId":84,"ageMs":36286,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T04:59:00.082Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":36331}
+{"ts":"2026-04-27T04:59:00.084Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":36330}
+{"ts":"2026-04-27T04:59:00.093Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":36337}
+{"ts":"2026-04-27T04:59:00.120Z","event":"slow_tick","timeframe":"5m","durationMs":36369,"marketSlug":"btc-updown-5m-1777265700"}
+{"ts":"2026-04-27T04:59:00.150Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":36392}
+{"ts":"2026-04-27T04:59:00.153Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":36394}
+{"ts":"2026-04-27T04:59:00.164Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":36403}
+{"ts":"2026-04-27T04:59:00.175Z","event":"slow_tick","timeframe":"15m","durationMs":36417,"marketSlug":"btc-updown-15m-1777265100"}
+{"ts":"2026-04-27T04:59:00.180Z","event":"loop_slow","loopId":84,"durationMs":36429}
+{"ts":"2026-04-27T04:59:19.198Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 36s","ageMs":36286,"loopId":84},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T05:07:39.175Z","event":"client.ws_error","tf":"5m","data":{"activeTf":"5m","lastGoodAt":1777266347721},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T05:07:39.187Z","event":"client.ws_close","tf":"5m","data":{"activeTf":"5m","lastGoodAt":1777266347721},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T05:09:31.776Z","event":"loop_stalled","loopId":101,"ageMs":6230,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T05:09:36.056Z","event":"loop_slow","loopId":101,"durationMs":10510}
+{"ts":"2026-04-27T05:09:36.711Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 6s","ageMs":6230,"loopId":101},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T05:09:40.764Z","event":"tick_reentry_blocked","timeframe":"5m"}
+{"ts":"2026-04-27T05:09:40.765Z","event":"tick_reentry_blocked","timeframe":"15m"}
+{"ts":"2026-04-27T05:09:48.978Z","event":"tick_reentry_blocked","timeframe":"5m"}
+{"ts":"2026-04-27T05:09:48.978Z","event":"tick_reentry_blocked","timeframe":"15m"}
+{"ts":"2026-04-27T05:09:52.592Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":27045}
+{"ts":"2026-04-27T05:09:52.648Z","event":"slow_tick","timeframe":"5m","durationMs":27102,"marketSlug":"btc-updown-5m-1777266300"}
+{"ts":"2026-04-27T05:09:54.456Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":28906}
+{"ts":"2026-04-27T05:09:54.459Z","event":"slow_tick","timeframe":"15m","durationMs":28911,"marketSlug":"btc-updown-15m-1777266000"}
+{"ts":"2026-04-27T05:10:00.159Z","event":"loop_stalled","loopId":104,"ageMs":6056,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T05:10:00.188Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":6082}
+{"ts":"2026-04-27T05:10:09.771Z","event":"loop_stalled","loopId":104,"ageMs":15668,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T05:10:09.780Z","event":"loop_slow","loopId":104,"durationMs":15677}
+{"ts":"2026-04-27T05:10:09.787Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":15684}
+{"ts":"2026-04-27T05:10:09.788Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":15684}
+{"ts":"2026-04-27T05:10:09.811Z","event":"slow_tick","timeframe":"5m","durationMs":15708,"marketSlug":"btc-updown-5m-1777266300"}
+{"ts":"2026-04-27T05:10:11.779Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 6s","ageMs":6056,"loopId":104},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T05:10:23.579Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 16s","ageMs":15668,"loopId":104},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T05:10:27.732Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":5986}
+{"ts":"2026-04-27T05:10:27.768Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":6018}
+{"ts":"2026-04-27T05:10:31.210Z","event":"loop_stalled","loopId":105,"ageMs":9467,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T05:10:38.696Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 9s","ageMs":9467,"loopId":105},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T05:10:41.601Z","event":"loop_slow","loopId":105,"durationMs":19858}
+{"ts":"2026-04-27T05:10:41.603Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":19860}
+{"ts":"2026-04-27T05:10:41.604Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":19859}
+{"ts":"2026-04-27T05:10:41.612Z","event":"slow_tick","timeframe":"5m","durationMs":19869,"marketSlug":"btc-updown-5m-1777266300"}
+{"ts":"2026-04-27T05:10:41.617Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":19868}
+{"ts":"2026-04-27T05:10:41.619Z","event":"slow_tick","timeframe":"15m","durationMs":19871,"marketSlug":"btc-updown-15m-1777266000"}
+{"ts":"2026-04-27T05:10:41.616Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":19868}
+{"ts":"2026-04-27T05:11:18.591Z","event":"loop_stalled","loopId":106,"ageMs":20045,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T05:11:18.593Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":20047}
+{"ts":"2026-04-27T05:11:18.594Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":20042}
+{"ts":"2026-04-27T05:11:18.601Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":20045}
+{"ts":"2026-04-27T05:11:18.617Z","event":"slow_tick","timeframe":"5m","durationMs":20071,"marketSlug":"btc-updown-5m-1777266300"}
+{"ts":"2026-04-27T05:11:18.623Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":20062}
+{"ts":"2026-04-27T05:11:18.624Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":20057}
+{"ts":"2026-04-27T05:11:18.637Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":20068}
+{"ts":"2026-04-27T05:11:18.638Z","event":"slow_tick","timeframe":"15m","durationMs":20077,"marketSlug":"btc-updown-15m-1777266000"}
+{"ts":"2026-04-27T05:11:18.639Z","event":"loop_slow","loopId":106,"durationMs":20093}

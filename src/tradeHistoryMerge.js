@@ -1,13 +1,32 @@
 import fs from "node:fs";
 
+const readCache = new Map();
+
 export function readTradeHistoryFile(filePath) {
   try {
-    if (!fs.existsSync(filePath)) return [];
+    let stat;
+    try {
+      stat = fs.statSync(filePath);
+    } catch {
+      readCache.delete(filePath);
+      return [];
+    }
+    const cached = readCache.get(filePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      return cached.data;
+    }
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
+    const data = Array.isArray(parsed) ? parsed : [];
+    readCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, data });
+    return data;
   } catch {
     return [];
   }
+}
+
+export function invalidateTradeHistoryCache(filePath) {
+  if (filePath) readCache.delete(filePath);
+  else readCache.clear();
 }
 
 export function tradeHistoryKey(record) {
@@ -62,10 +81,12 @@ export function writeTradeHistoryFileAtomic(filePath, history) {
   const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmpPath, JSON.stringify(history, null, 2), "utf8");
   fs.renameSync(tmpPath, filePath);
+  readCache.delete(filePath);
 }
 
 export async function writeTradeHistoryFileAtomicAsync(filePath, history) {
   const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
   await fs.promises.writeFile(tmpPath, JSON.stringify(history, null, 2), "utf8");
   await fs.promises.rename(tmpPath, filePath);
+  readCache.delete(filePath);
 }

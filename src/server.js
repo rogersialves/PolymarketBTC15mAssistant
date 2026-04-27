@@ -786,6 +786,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
   let snapshotSavedForSlug = null;
   let dumpedMarketSlugs = new Set();
   let lastAnalysis = null;
+  let lastBroadcastedAnalysis = null;
 
   // ── Simulated trade tracking ──
   // { [slug]: { [indicatorName]: { side, entryPrice, timeLeft, ts, stake, shares } } }
@@ -810,6 +811,44 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
   const tradesCsvPath = `./logs/sim_trades_${tfLabel}.csv`;
   const tradeHistoryPath = path.join(__dirname, "..", "logs", "trade_history.json");
   const tradesCsvHeader = SIM_TRADES_HEADER;
+
+  // mtime-based cache for the parsed sim trades CSV. Re-parsing the file on
+  // every tick (~1s) was the dominant source of event-loop blocking and GC
+  // pressure for trade_history-heavy installs. The file only changes when
+  // appendCsvRow writes a new row, so a stat() check per tick is enough.
+  let tradesCsvCache = { mtimeMs: 0, size: 0, headers: null, rows: null };
+  function readTradesCsvCached() {
+    let stat;
+    try {
+      stat = fs.statSync(tradesCsvPath);
+    } catch {
+      tradesCsvCache = { mtimeMs: 0, size: 0, headers: null, rows: null };
+      return null;
+    }
+    if (
+      tradesCsvCache.rows &&
+      tradesCsvCache.mtimeMs === stat.mtimeMs &&
+      tradesCsvCache.size === stat.size
+    ) {
+      return { headers: tradesCsvCache.headers, rows: tradesCsvCache.rows };
+    }
+    let raw;
+    try { raw = fs.readFileSync(tradesCsvPath, "utf8"); } catch { return null; }
+    const lines = raw.trim().split("\n").map(l => l.replace(/\r$/, ""));
+    if (lines.length < 2) {
+      tradesCsvCache = { mtimeMs: stat.mtimeMs, size: stat.size, headers: null, rows: [] };
+      return { headers: [], rows: [] };
+    }
+    const headers = lines[0].split(",");
+    const rows = lines.slice(1).map(line => {
+      const values = line.split(",");
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = values[i] ?? ""; });
+      return obj;
+    });
+    tradesCsvCache = { mtimeMs: stat.mtimeMs, size: stat.size, headers, rows };
+    return { headers, rows };
+  }
 
   // ── Consensus Edge dynamic stake tracker ──
   // Running balance for Consensus Edge to compute $1 + 20% of profit
@@ -1675,6 +1714,14 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       logEngineDiagnostic("slow_tick", { timeframe: tfLabel, durationMs: tickDurationMs, marketSlug }, "warn");
     }
 
+      // Only attach analysis to the broadcast payload when it actually changed
+      // since the previous tick. computeSimAnalysis returns the same object
+      // reference until sim_trades.csv or trade_history.json is rewritten, and
+      // the frontend already keeps the last `analysis` cached client-side. This
+      // avoids serializing ~250 KB of wallet histories every second.
+      const analysisChanged = analysisResult !== lastBroadcastedAnalysis;
+      if (analysisChanged) lastBroadcastedAnalysis = analysisResult;
+
       const payload = {
       type: "tick",
       timeframe: tfLabel,
@@ -1730,9 +1777,9 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
           }
         },
         trading: polyTrader.getStatus()
-      },
-      analysis: analysisResult
+      }
       };
+      if (analysisChanged) payload.analysis = analysisResult;
       lastTickPayload = payload;
       return payload;
     })();
@@ -1745,6 +1792,13 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
   }
 
   // ── Compute accuracy from sim trades (entry-based, not close-based) ──
+  // Cache the heavy analysis aggregation across ticks. The result depends only
+  // on (csvRowsRef, tradeHistoryRef, filterMode) — all three come from
+  // mtime-keyed caches, so the references are stable until a write happens.
+  // This avoids re-iterating ~5k CSV rows + rebuilding ~10 wallet histories
+  // every second per engine.
+  const analysisCache = new Map(); // filterMode → { rowsRef, historyRef, result }
+
   function computeSimAnalysis(filterMode) {
     let tradeHistory = [];
     try {
@@ -1772,19 +1826,20 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       console.warn(`⚠️  [${tfLabel}] backfill de carteiras falhou: ${err?.message || err}`);
     }
 
-    if (!fs.existsSync(tradesCsvPath)) return null;
-    let raw;
-    try { raw = fs.readFileSync(tradesCsvPath, "utf8"); } catch { return null; }
-    const lines = raw.trim().split("\n").map(l => l.replace(/\r$/, ""));
-    if (lines.length < 2) return null;
+    const csvData = readTradesCsvCached();
+    if (!csvData || !csvData.rows || csvData.rows.length === 0) return null;
 
-    const headers = lines[0].split(",");
-    let rows = lines.slice(1).map(line => {
-      const values = line.split(",");
-      const obj = {};
-      headers.forEach((h, i) => { obj[h] = values[i] ?? ""; });
-      return obj;
-    }).filter(r => {
+    const cacheKey = filterMode || "*";
+    const cachedAnalysis = analysisCache.get(cacheKey);
+    if (
+      cachedAnalysis
+      && cachedAnalysis.rowsRef === csvData.rows
+      && cachedAnalysis.historyRef === tradeHistory
+    ) {
+      return cachedAnalysis.result;
+    }
+
+    let rows = csvData.rows.filter(r => {
       if (!r.market_slug || !r.indicator) return false;
       if (!ALL_INDICATORS.includes(r.indicator)) return false;
       if (!filterMode) return true; // no filter — return all (Dashboard)
@@ -1902,7 +1957,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     }
     const walletList = Object.values(wallets).sort((a, b) => b.balance - a.balance);
 
-    return {
+    const result = {
       totalSnapshots: seenSlugs.size,
       upCount: totalUp,
       downCount: totalDown,
@@ -1911,6 +1966,12 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       wallets: walletList,
       source: "sim_trades"
     };
+    analysisCache.set(cacheKey, {
+      rowsRef: csvData.rows,
+      historyRef: tradeHistory,
+      result
+    });
+    return result;
   }
 
   return {
