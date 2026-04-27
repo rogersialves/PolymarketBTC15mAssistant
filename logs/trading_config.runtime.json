@@ -1,34 +1,10 @@
 {
   "version": 1,
-  "savedAt": "2026-04-26T23:37:00.713Z",
+  "savedAt": "2026-04-27T04:34:24.167Z",
   "enabledIndicators5m": [
-    "Full Consensus",
-    "Heiken+OBV",
-    "5+ Agree",
-    "TA Predict",
-    "Heiken Ashi",
-    "OBV",
-    "MACD",
-    "Delta 3m",
-    "Bollinger",
-    "Consensus Edge",
-    "Top3 5m",
-    "Delta 3m Fade 5m",
     "Scalp Force 5m"
   ],
   "enabledIndicators15m": [
-    "Full Consensus",
-    "Heiken+OBV",
-    "5+ Agree",
-    "TA Predict",
-    "Heiken Ashi",
-    "OBV",
-    "MACD",
-    "Delta 3m",
-    "Bollinger",
-    "Consensus Edge",
-    "Top3 15m",
-    "Delta 3m Fade 15m",
     "Scalp Force 15m"
   ],
   "stakesPerIndicator": {
