@@ -41,6 +41,10 @@ export class PolyTrader {
 
     // Persistent history file
     this._historyPath = resolve("./logs/trade_history.json");
+    this._historySaveDebounceMs = Math.max(50, Number(process.env.TRADE_HISTORY_SAVE_DEBOUNCE_MS || 250));
+    this._historySaveTimer = null;
+    this._historySaveInProgress = false;
+    this._historySavePending = false;
     this._loadHistory();
   }
 
@@ -63,7 +67,7 @@ export class PolyTrader {
   }
 
   // ── Save orderHistory to disk ──
-  _saveHistory() {
+  _flushHistoryNow() {
     try {
       const diskHistory = readTradeHistoryFile(this._historyPath);
       const merged = mergeTradeHistoryRecords(diskHistory, this.orderHistory);
@@ -72,6 +76,32 @@ export class PolyTrader {
     } catch (err) {
       console.warn(`⚠️  [PolyTrader] Erro ao salvar histórico: ${err.message}`);
     }
+  }
+
+  _scheduleHistoryFlush() {
+    if (this._historySaveTimer) return;
+    this._historySaveTimer = setTimeout(() => {
+      this._historySaveTimer = null;
+      if (this._historySaveInProgress) {
+        this._historySavePending = true;
+        return;
+      }
+      this._historySaveInProgress = true;
+      try {
+        this._flushHistoryNow();
+      } finally {
+        this._historySaveInProgress = false;
+        if (this._historySavePending) {
+          this._historySavePending = false;
+          this._scheduleHistoryFlush();
+        }
+      }
+    }, this._historySaveDebounceMs);
+    this._historySaveTimer.unref?.();
+  }
+
+  _saveHistory() {
+    this._scheduleHistoryFlush();
   }
 
   _toNumber(value, fallback = 0) {

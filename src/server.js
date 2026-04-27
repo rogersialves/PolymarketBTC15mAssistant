@@ -706,17 +706,27 @@ function createPolymarketResolver(preset) {
 
     let upClobPrice = null, downClobPrice = null;
     let upOb = {}, downOb = {};
+    const clobEnrichment = Promise.all([
+      fetchClobPrice({ tokenId: upTokenId, side: "buy" }),
+      fetchClobPrice({ tokenId: downTokenId, side: "buy" }),
+      fetchOrderBook({ tokenId: upTokenId }),
+      fetchOrderBook({ tokenId: downTokenId })
+    ]);
+    // Prevent unhandled rejection if this Promise.all loses the race below
+    // and the individual fetches later reject (e.g. CLOB timeout fires after budget).
+    clobEnrichment.catch(() => {});
+
     try {
-      const [upP, downP, uOb, dOb] = await Promise.all([
-        fetchClobPrice({ tokenId: upTokenId, side: "buy" }),
-        fetchClobPrice({ tokenId: downTokenId, side: "buy" }),
-        fetchOrderBook({ tokenId: upTokenId }),
-        fetchOrderBook({ tokenId: downTokenId })
+      const [upP, downP, uOb, dOb] = await Promise.race([
+        clobEnrichment,
+        timeoutAfter(CONFIG.polymarketSnapshotClobBudgetMs, `polymarket clob enrich ${tfLabel}`)
       ]);
       upClobPrice = upP; downClobPrice = downP;
       upOb = summarizeOrderBook(uOb);
       downOb = summarizeOrderBook(dOb);
-    } catch { /* ignore */ }
+    } catch {
+      // Keep Gamma prices when CLOB enrichment is slow/unavailable.
+    }
 
     return {
       ok: true,
@@ -960,18 +970,45 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     }
   }
 
-  async function tick() {
-    const tickStartedAt = Date.now();
-    const candleTiming = getCandleWindowTiming(windowMinutes);
-    const binanceTick = sharedStreams.binanceStream.getLast();
-    const binanceLivePrice = binanceTick?.price ?? null;
-    const binanceTickTs = binanceTick?.ts ?? null;
-    const polymarketTick = sharedStreams.polymarketLiveStream.getLast();
-    const polymarketLivePrice = polymarketTick?.price ?? null;
+  let tickInFlightPromise = null;
+  let tickReentryLastLoggedAt = 0;
+  let lastTickPayload = null;
 
-    const chainlinkTick = sharedStreams.chainlinkStream.getLast();
-    const chainlinkLivePrice = chainlinkTick?.price ?? null;
-    const chainlinkTickTs = chainlinkTick?.updatedAt ?? null;
+  async function tick() {
+    if (tickInFlightPromise) {
+      const now = Date.now();
+      if (now - tickReentryLastLoggedAt >= CONFIG.watchdogMs) {
+        tickReentryLastLoggedAt = now;
+        logEngineDiagnostic("tick_reentry_blocked", { timeframe: tfLabel }, "warn");
+      }
+      if (lastTickPayload) {
+        return {
+          ...lastTickPayload,
+          data: {
+            ...lastTickPayload.data,
+            watchdog: {
+              ...(lastTickPayload.data?.watchdog || {}),
+              staleTick: true,
+              tickReentryBlocked: true
+            }
+          }
+        };
+      }
+      throw new Error(`${tfLabel} tick anterior ainda em execução`);
+    }
+
+    tickInFlightPromise = (async () => {
+      const tickStartedAt = Date.now();
+      const candleTiming = getCandleWindowTiming(windowMinutes);
+      const binanceTick = sharedStreams.binanceStream.getLast();
+      const binanceLivePrice = binanceTick?.price ?? null;
+      const binanceTickTs = binanceTick?.ts ?? null;
+      const polymarketTick = sharedStreams.polymarketLiveStream.getLast();
+      const polymarketLivePrice = polymarketTick?.price ?? null;
+
+      const chainlinkTick = sharedStreams.chainlinkStream.getLast();
+      const chainlinkLivePrice = chainlinkTick?.price ?? null;
+      const chainlinkTickTs = chainlinkTick?.updatedAt ?? null;
 
     // Fetch data — priority: polymarket WS > chainlink WS > HTTP
     const chainlinkPricePromise = polymarketLivePrice !== null
@@ -1632,7 +1669,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       logEngineDiagnostic("slow_tick", { timeframe: tfLabel, durationMs: tickDurationMs, marketSlug }, "warn");
     }
 
-    return {
+      const payload = {
       type: "tick",
       timeframe: tfLabel,
       data: {
@@ -1689,7 +1726,16 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
         trading: polyTrader.getStatus()
       },
       analysis: analysisResult
-    };
+      };
+      lastTickPayload = payload;
+      return payload;
+    })();
+
+    try {
+      return await tickInFlightPromise;
+    } finally {
+      tickInFlightPromise = null;
+    }
   }
 
   // ── Compute accuracy from sim trades (entry-based, not close-based) ──
@@ -2295,6 +2341,15 @@ async function main() {
         }
       } catch { /* ignore */ }
     });
+  });
+
+  // Global safety net — log and swallow unhandled rejections so the process
+  // does not crash from dangling async timeouts (e.g. CLOB fetchWithTimeout
+  // timers that fire after a Promise.race budget already settled).
+  process.on("unhandledRejection", (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    logEngineDiagnostic("unhandled_rejection", { message: msg });
+    console.error("[unhandledRejection] swallowed:", msg);
   });
 
   const PORT = Number(process.env.PORT) || 3000;

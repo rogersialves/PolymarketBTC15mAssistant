@@ -25,13 +25,22 @@ function getOrderedBases() {
 export async function fetchBinanceJson(pathname, params = {}, label = "Binance request") {
   const bases = getOrderedBases();
   const errors = [];
-  const now = Date.now();
+  const requestStartedAt = Date.now();
+  const failoverBudgetMs = Math.max(CONFIG.httpTimeoutMs, CONFIG.binanceFailoverBudgetMs || CONFIG.httpTimeoutMs);
 
   for (const baseUrl of bases) {
+    const now = Date.now();
     const cooldownUntil = baseCooldownUntil.get(baseUrl) || 0;
     if (cooldownUntil > now) {
       errors.push(`${baseUrl}: cooldown ${Math.ceil((cooldownUntil - now) / 1000)}s`);
       continue;
+    }
+
+    const elapsedMs = now - requestStartedAt;
+    const remainingBudgetMs = failoverBudgetMs - elapsedMs;
+    if (remainingBudgetMs <= 0) {
+      errors.push(`failover budget exceeded (${failoverBudgetMs}ms)`);
+      break;
     }
 
     const url = new URL(pathname, baseUrl);
@@ -41,7 +50,7 @@ export async function fetchBinanceJson(pathname, params = {}, label = "Binance r
 
     try {
       const res = await fetchWithTimeout(url, {}, {
-        timeoutMs: CONFIG.httpTimeoutMs,
+        timeoutMs: Math.max(500, Math.min(CONFIG.httpTimeoutMs, remainingBudgetMs)),
         label: `${label} ${baseUrl}`
       });
       if (res.ok) {

@@ -252,6 +252,89 @@ Criação dos indicadores `Top3 15m` (Delta 3m + Heiken Ashi + OBV) e `Top3 5m` 
 
 ---
 
+## Sessão: 27/04/2026 — Diagnóstico e Correção de Travamento + Crash Fatal
+
+### Contexto
+A aplicação travava após ~2 minutos de execução ("Loop principal sem finalizar há Xs") e depois crashava com `Error: CLOB price timeout after 4000ms` não tratado, encerrando o processo Node.js.
+
+---
+
+### 🔴 Bug #17 — Loop principal trava por reentrada de ticks concorrentes
+
+**Sintoma observado:** `engine_watchdog.jsonl` registrava `loop_stalled` com `ageMs` entre 6000–18000ms recorrentemente. A causa era tick anterior ainda em execução quando o próximo era disparado, causando empilhamento de chamadas assíncronas.
+
+**Root cause:**
+- O watchdog dispara tick a cada segundo; se uma iteração demora (latência Binance/Polymarket), o próximo tick começa antes do anterior terminar.
+- Binance.com entrava em cooldown → failover para `api.binance.us` → 2× `httpTimeoutMs` de espera (8s total).
+- `polymarket.snapshot` podia demorar até 32s em casos extremos por fetch CLOB sem budget.
+
+**Localização:** `src/server.js` — `createTimeframeEngine()` e loop principal; `src/data/binance.js` — `fetchBinanceJson()`; `src/config.js`
+
+**Correções aplicadas:**
+
+1. **Guard de reentrada de tick** (`tickInFlightPromise`) em `src/server.js`:
+   - State `let tickInFlightPromise = null` por timeframe
+   - Se tick anterior ainda está em execução, o novo tick retorna `lastPayload` (stale) imediatamente sem criar nova execução concorrente
+   - Log `tick_reentry_blocked` no watchdog para diagnóstico
+   - `tickInFlightPromise = null` no `finally` do wrapper
+
+2. **Budget total de failover da Binance** em `src/data/binance.js`:
+   - Nova variável `CONFIG.binanceFailoverBudgetMs` (padrão: 7000ms, env: `BINANCE_FAILOVER_BUDGET_MS`)
+   - O loop de failover entre `api.binance.com` e `api.binance.us` tem um deadline absoluto — se o budget esgotar, interrompe sem tentar endpoints restantes
+
+3. **Budget de enriquecimento CLOB no snapshot** em `src/server.js`:
+   - Nova variável `CONFIG.polymarketSnapshotClobBudgetMs` (padrão: 1000ms, env: `POLYMARKET_SNAPSHOT_CLOB_BUDGET_MS`)
+   - `fetchSnapshot()` faz `Promise.race([clobEnrichment, timeoutAfter(budget)])` — se os fetches CLOB demoram mais que o budget, o snapshot retorna usando apenas preços Gamma sem CLOB enrichment
+
+4. **Debounce de gravação do `trade_history.json`** em `src/polyTrader.js`:
+   - Substituído save síncrono a cada trade por flush em lote (debounce), reduzindo bloqueio do event loop durante burst de operações
+
+---
+
+### 🔴 Bug #18 — Crash fatal por `unhandledRejection` do CLOB timeout
+
+**Sintoma observado:** Após aplicar o budget CLOB, a aplicação passou a crashar com:
+```
+Error: CLOB price timeout after 4000ms
+    at fetchWithTimeout (src/net/http.js:16:13)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at async fetchClobPrice (src/data/polymarket.js:262:15)
+    at async Promise.all (index 0)
+```
+
+**Root cause:**
+- `fetchSnapshot()` usa `Promise.race([clobEnrichment, timeoutAfter(budget)])`.
+- Quando o budget (1000ms) vence o race, o `clobEnrichment` (`Promise.all` com 4 fetches CLOB) continua rodando em background.
+- Os fetches CLOB individualmente têm `httpTimeoutMs = 4000ms`. Quando expiram, cada um rejeita com `Error: CLOB price timeout after 4000ms`.
+- Como o `Promise.all` "perdeu" o race e ninguém mais aguarda sua resolução/rejeição, as rejeições ficam sem handler — o Node.js as trata como `unhandledRejection` e encerra o processo por padrão (comportamento a partir do Node 15+).
+
+**Localização:** `src/server.js` — `fetchSnapshot()` dentro de `createPolymarketResolver()`
+
+**Correções aplicadas:**
+
+1. **Silenciar rejeições do `clobEnrichment` abandonado** em `src/server.js`:
+   ```js
+   const clobEnrichment = Promise.all([...]);
+   // Prevent unhandled rejection if this Promise.all loses the race below
+   clobEnrichment.catch(() => {});
+   ```
+   O `.catch(() => {})` registra um handler vazio imediatamente, garantindo que qualquer rejeição futura dos fetches pendentes seja absorvida silenciosamente.
+
+2. **Handler global `process.on('unhandledRejection', ...)`** em `src/server.js` (antes do `server.listen`):
+   ```js
+   process.on("unhandledRejection", (reason) => {
+     const msg = reason instanceof Error ? reason.message : String(reason);
+     logEngineDiagnostic("unhandled_rejection", { message: msg });
+     console.error("[unhandledRejection] swallowed:", msg);
+   });
+   ```
+   Segunda linha de defesa: qualquer rejeição não tratada futura é logada via `logEngineDiagnostic` (aparece em `engine_watchdog.jsonl`) sem encerrar o processo.
+
+**Invariante a preservar:** O `clobEnrichment.catch(() => {})` deve ser adicionado **imediatamente após** criar o `Promise.all`, antes do `Promise.race`. Se o race for refatorado no futuro, garantir que as promessas internas sempre tenham um handler de erro registrado quando há possibilidade de serem abandonadas.
+
+---
+
 ## Melhorias Pendentes (ainda não aplicadas)
 
 ### 🟡 Melhoria #9 — `resolve-pending-trades.mjs` sem timeout no `fetch`
