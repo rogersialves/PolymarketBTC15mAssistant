@@ -7,6 +7,10 @@
     "start": "node scripts/start-clean.mjs",
     "web": "node src/server.js",
     "cli": "node src/index.js",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:import-trade-history": "node scripts/import-trade-history.mjs",
+    "db:check": "node scripts/db-check.mjs",
+    "test": "node --test \"src/**/*.test.js\"",
     "test:scalp-force": "node scripts/scalp-force-smoke.mjs"
   },
   "dependencies": {
@@ -15,6 +19,7 @@
     "ethers": "^6.11.1",
     "express": "^5.2.1",
     "https-proxy-agent": "^7.0.6",
+    "pg": "^8.20.0",
     "socks-proxy-agent": "^8.0.5",
     "undici": "^6.21.3",
     "ws": "^8.18.0"

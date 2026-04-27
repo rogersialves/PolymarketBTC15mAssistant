@@ -64,6 +64,9 @@ import { PolyTrader } from "./polyTrader.js";
 import { reconcileSimCsvs } from "./reconcileSimCsvs.js";
 import { mergeTradeHistoryRecords, readTradeHistoryFile, writeTradeHistoryFileAtomic } from "./tradeHistoryMerge.js";
 import { backfillSimTradesFromHistory, enrichSimRowsWithTradeHistory, persistSimCsvTokenColumns, SIM_TRADES_HEADER } from "./simTradeHistoryBackfill.js";
+import { isPostgresEnabled } from "./storage/db.js";
+import { buildTradeHistoryAnalysis } from "./storage/tradeHistoryAnalysis.js";
+import { ensureTradeHistorySchema, listTradeHistoryRecords, upsertTradeHistoryRecords } from "./storage/tradeHistoryStore.js";
 
 applyGlobalProxyFromEnv();
 
@@ -906,10 +909,15 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
 
     // Push updated wallet data to all connected clients immediately
     try {
-      const updatedAnalysis = computeSimAnalysis("SIMULATION");
-      if (updatedAnalysis) {
-        broadcast({ type: "analysis", timeframe: tfLabel, data: updatedAnalysis, mode: "SIMULATION" });
-      }
+      computeSimAnalysis("SIMULATION")
+        .then(updatedAnalysis => {
+          if (updatedAnalysis) {
+            broadcast({ type: "analysis", timeframe: tfLabel, data: updatedAnalysis, mode: "SIMULATION" });
+          }
+        })
+        .catch(broadcastErr => {
+          console.warn(`⚠️  [${tfLabel}] broadcast analysis after resolution failed: ${broadcastErr?.message}`);
+        });
     } catch (broadcastErr) {
       console.warn(`⚠️  [${tfLabel}] broadcast analysis after resolution failed: ${broadcastErr?.message}`);
     }
@@ -1697,7 +1705,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       }
 
       // ── Run analysis from sim trades (entry-based) with fallback ──
-      const simResult = computeSimAnalysis();
+      const simResult = await computeSimAnalysis();
       if (simResult && simResult.totalSnapshots >= 1) {
         analysisResult = simResult;
       } else {
@@ -1799,7 +1807,23 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
   // every second per engine.
   const analysisCache = new Map(); // filterMode → { rowsRef, historyRef, result }
 
-  function computeSimAnalysis(filterMode) {
+  async function computeSimAnalysis(filterMode) {
+    if (isPostgresEnabled()) {
+      try {
+        const tradeHistory = await listTradeHistoryRecords();
+        const result = buildTradeHistoryAnalysis(tradeHistory, {
+          timeframeLabel: tfLabel,
+          filterMode,
+          allIndicators: ALL_INDICATORS,
+          scalpIndicators: SCALP_INDICATORS
+        });
+        return result.totalSnapshots >= 1 ? result : null;
+      } catch (err) {
+        console.warn(`⚠️  [${tfLabel}] análise trade_history/Postgres falhou: ${err?.message || err}`);
+        return null;
+      }
+    }
+
     let tradeHistory = [];
     try {
       tradeHistory = readTradeHistoryFile(tradeHistoryPath);
@@ -1976,16 +2000,16 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
 
   return {
     tick,
-    getAnalysis: () => {
+    getAnalysis: async () => {
       // Try sim-based analysis first (entry-based evaluation) — ALL modes (Dashboard)
-      const simResult = computeSimAnalysis(); // no filter
+      const simResult = await computeSimAnalysis(); // no filter
       if (simResult && simResult.totalSnapshots >= 1) return simResult;
       // Fall back to snapshot-based analysis
       return runAnalysis(csvPath, lastAnalysis, windowMinutes);
     },
-    getAnalysisForMode: (filterMode) => {
+    getAnalysisForMode: async (filterMode) => {
       // Filtered analysis — only rows matching the given mode (e.g. DRY_RUN)
-      const simResult = computeSimAnalysis(filterMode);
+      const simResult = await computeSimAnalysis(filterMode);
       if (simResult && simResult.totalSnapshots >= 1) return simResult;
       return { totalSnapshots: 0, upCount: 0, downCount: 0, indicators: [], candles: [], wallets: [], source: "empty" };
     }
@@ -2006,6 +2030,11 @@ function formatTimeLeft(totalMinutes) {
 async function main() {
   console.log("🚀 Starting BTC Polymarket Web Dashboard...\n");
 
+  if (isPostgresEnabled()) {
+    await ensureTradeHistorySchema();
+    console.log("✅ Postgres trade_history pronto");
+  }
+
   // Apply default preset to initialize CONFIG
   applyWindowPreset(5);
 
@@ -2020,23 +2049,25 @@ async function main() {
   const engine15m = createTimeframeEngine(15, sharedStreams);
 
   // API endpoint for manual analysis
-  app.get("/api/analysis/:tf", (req, res) => {
+  app.get("/api/analysis/:tf", async (req, res) => {
     const tf = req.params.tf === "15m" ? "15m" : "5m";
     const engine = tf === "15m" ? engine15m : engine5m;
-    res.json(engine.getAnalysis());
+    res.json(await engine.getAnalysis());
   });
 
   // ── GET /api/trade-history — retorna trade_history.json filtrado ──
-  app.get("/api/trade-history", (req, res) => {
+  app.get("/api/trade-history", async (req, res) => {
     try {
+      const sinceRaw = parseInt(req.query.since, 10);
+      const since = Number.isFinite(sinceRaw) && sinceRaw > 0 ? sinceRaw : 0;
+      if (isPostgresEnabled()) {
+        res.json(await listTradeHistoryRecords({ since }));
+        return;
+      }
       const historyPath = path.join(__dirname, "..", "logs", "trade_history.json");
       if (!fs.existsSync(historyPath)) return res.json([]);
       const history = JSON.parse(fs.readFileSync(historyPath, "utf8"));
-
-      const sinceRaw = parseInt(req.query.since, 10);
-      const since = Number.isFinite(sinceRaw) && sinceRaw > 0 ? sinceRaw : 0;
-      const filtered = since > 0 ? history.filter(t => (t.timestamp || 0) >= since) : history;
-      res.json(filtered);
+      res.json(since > 0 ? history.filter(t => (t.timestamp || 0) >= since) : history);
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -2080,6 +2111,10 @@ async function main() {
     };
 
     const sendCsvReconciliation = (correctedTrades, dryRunFlag) => {
+      if (isPostgresEnabled()) {
+        send({ type: "info", msg: "ℹ️ Reconciliação CSV ignorada: trade_history/Postgres é a fonte da verdade." });
+        return { totalReconciled: 0, perFile: {}, samples: [] };
+      }
       send({ type: "info", msg: "🔍 Reconciliando todas as linhas em sim_trades_*.csv..." });
       const recon = reconcileSimCsvs({
         correctedTrades,
@@ -2109,6 +2144,10 @@ async function main() {
     };
 
     const sendHistoryBackfill = (historyPath, dryRunFlag) => {
+      if (isPostgresEnabled()) {
+        send({ type: "info", msg: "ℹ️ Backfill CSV ignorado: carteiras agora usam trade_history/Postgres." });
+        return 0;
+      }
       send({ type: "info", msg: "🔁 Recuperando linhas faltantes das carteiras a partir do trade_history..." });
       let total = 0;
       let tokens = 0;
@@ -2192,13 +2231,15 @@ async function main() {
 
     try {
       const historyPath = path.join(__dirname, "..", "logs", "trade_history.json");
-      if (!fs.existsSync(historyPath)) {
+      if (!isPostgresEnabled() && !fs.existsSync(historyPath)) {
         send({ type: "error", msg: "❌ trade_history.json não encontrado." });
         send({ type: "done", updated: 0, skipped: 0, failed: 0 });
         return;
       }
 
-      const history = JSON.parse(fs.readFileSync(historyPath, "utf8"));
+      const history = isPostgresEnabled()
+        ? await listTradeHistoryRecords()
+        : JSON.parse(fs.readFileSync(historyPath, "utf8"));
 
       const pending = history.filter(t => {
         if (since > 0 && (t.timestamp || 0) < since) return false;
@@ -2209,7 +2250,7 @@ async function main() {
 
       if (pending.length === 0) {
         send({ type: "info", msg: "✅ Nenhum trade pendente no período selecionado." });
-        sendCsvReconciliation(dryRun ? history : readTradeHistoryFile(historyPath), dryRun);
+        sendCsvReconciliation(dryRun ? history : (isPostgresEnabled() ? await listTradeHistoryRecords() : readTradeHistoryFile(historyPath)), dryRun);
         sendHistoryBackfill(historyPath, dryRun);
         if (dryRun) {
           send({ type: "info", msg: "🧪 [DRY_RUN] Alterações NÃO salvas." });
@@ -2298,17 +2339,23 @@ async function main() {
         send({ type: "info", msg: "🧪 [DRY_RUN] Alterações NÃO salvas." });
       } else {
         if (updated > 0) {
-          const backupPath = historyPath.replace(".json", `.backup-${Date.now()}.json`);
-          fs.copyFileSync(historyPath, backupPath);
-          const latestHistory = readTradeHistoryFile(historyPath);
-          const mergedHistory = mergeTradeHistoryRecords(latestHistory, history);
-          writeTradeHistoryFileAtomic(historyPath, mergedHistory);
-          send({ type: "info", msg: `💾 Salvo — backup em ${path.basename(backupPath)} | ${mergedHistory.length} registro(s)` });
-          sendCsvReconciliation(mergedHistory, false);
+          if (isPostgresEnabled()) {
+            await upsertTradeHistoryRecords(history);
+            send({ type: "info", msg: `💾 Salvo no Postgres | ${history.length} registro(s)` });
+            sendCsvReconciliation(history, false);
+          } else {
+            const backupPath = historyPath.replace(".json", `.backup-${Date.now()}.json`);
+            fs.copyFileSync(historyPath, backupPath);
+            const latestHistory = readTradeHistoryFile(historyPath);
+            const mergedHistory = mergeTradeHistoryRecords(latestHistory, history);
+            writeTradeHistoryFileAtomic(historyPath, mergedHistory);
+            send({ type: "info", msg: `💾 Salvo — backup em ${path.basename(backupPath)} | ${mergedHistory.length} registro(s)` });
+            sendCsvReconciliation(mergedHistory, false);
+          }
           sendHistoryBackfill(historyPath, false);
         } else {
-          send({ type: "info", msg: "ℹ️ Nenhuma alteração nova em trade_history.json." });
-          sendCsvReconciliation(readTradeHistoryFile(historyPath), false);
+          send({ type: "info", msg: isPostgresEnabled() ? "ℹ️ Nenhuma alteração nova em trade_history/Postgres." : "ℹ️ Nenhuma alteração nova em trade_history.json." });
+          sendCsvReconciliation(isPostgresEnabled() ? await listTradeHistoryRecords() : readTradeHistoryFile(historyPath), false);
           sendHistoryBackfill(historyPath, false);
         }
       }
@@ -2325,7 +2372,7 @@ async function main() {
 
   // Handle WebSocket messages from client
   wss.on("connection", (ws) => {
-    ws.on("message", (msg) => {
+    ws.on("message", async (msg) => {
       try {
         const data = JSON.parse(msg);
         if (data.action === "analyze") {
@@ -2333,8 +2380,8 @@ async function main() {
           const engine = tf === "15m" ? engine15m : engine5m;
           const filterMode = data.mode || null;
           const result = filterMode
-            ? engine.getAnalysisForMode(filterMode)
-            : engine.getAnalysis();
+            ? await engine.getAnalysisForMode(filterMode)
+            : await engine.getAnalysis();
           ws.send(JSON.stringify({ type: "analysis", timeframe: tf, data: result, mode: filterMode }));
         }
         // ── Get current config ──

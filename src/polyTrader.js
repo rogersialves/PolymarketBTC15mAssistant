@@ -7,6 +7,8 @@ import { ethers } from "ethers";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { mergeTradeHistoryRecords, readTradeHistoryFile, writeTradeHistoryFileAtomicAsync } from "./tradeHistoryMerge.js";
+import { isPostgresEnabled } from "./storage/db.js";
+import { ensureTradeHistorySchema, listTradeHistoryRecords, upsertTradeHistoryRecords } from "./storage/tradeHistoryStore.js";
 
 // ── Ethers v6 → v5 Signer Adapter ──
 // The @polymarket/clob-client expects ethers v5 _signTypedData, but we use v6
@@ -45,12 +47,23 @@ export class PolyTrader {
     this._historySaveTimer = null;
     this._historySaveInProgress = false;
     this._historySavePending = false;
-    this._loadHistory();
+    this._historyReady = this._loadHistory();
   }
 
   // ── Load orderHistory from disk ──
-  _loadHistory() {
+  async _loadHistory() {
     try {
+      if (isPostgresEnabled()) {
+        await ensureTradeHistorySchema();
+        const data = await listTradeHistoryRecords();
+        if (Array.isArray(data) && data.length > 0) {
+          this.orderHistory = data;
+          const live = data.filter(t => !t.dryRun).length;
+          const dry  = data.filter(t =>  t.dryRun).length;
+          console.log(`📂 [PolyTrader] Histórico carregado do Postgres: ${data.length} operações (${live} LIVE, ${dry} SIM)`);
+        }
+        return;
+      }
       if (existsSync(this._historyPath)) {
         const raw = readFileSync(this._historyPath, "utf8");
         const data = JSON.parse(raw);
@@ -69,6 +82,11 @@ export class PolyTrader {
   // ── Save orderHistory to disk (async — não bloqueia event loop) ──
   async _flushHistoryNow() {
     try {
+      if (isPostgresEnabled()) {
+        await ensureTradeHistorySchema();
+        await upsertTradeHistoryRecords(this.orderHistory);
+        return;
+      }
       const diskHistory = readTradeHistoryFile(this._historyPath);
       const merged = mergeTradeHistoryRecords(diskHistory, this.orderHistory);
       this.orderHistory = merged;
@@ -227,6 +245,7 @@ export class PolyTrader {
 
   // ── Initialize connection to Polymarket CLOB ──
   async init() {
+    await this._historyReady;
     if (!this.privateKey) {
       console.log("⚠️  [PolyTrader] POLY_PRIVATE_KEY não configurada — operando apenas em DRY_RUN");
       this.dryRun = true;
