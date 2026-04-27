@@ -3,6 +3,12 @@
  * Coleta dados para 5m e 15m simultaneamente.
  * Uso: npm run web  →  http://localhost:3000
  */
+// Force IPv4-first DNS resolution. Some networks expose AAAA records but have
+// broken IPv6 routing; Node's fetch defaults to "verbatim" order and stalls on
+// the IPv6 attempt. curl uses the system resolver and is unaffected.
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
 import "dotenv/config";
 import express from "express";
 import http from "node:http";
