@@ -7232,6 +7232,7 @@
 {"ts":"2026-04-27T05:11:18.637Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":20068}
 {"ts":"2026-04-27T05:11:18.638Z","event":"slow_tick","timeframe":"15m","durationMs":20077,"marketSlug":"btc-updown-15m-1777266000"}
 {"ts":"2026-04-27T05:11:18.639Z","event":"loop_slow","loopId":106,"durationMs":20093}
+<<<<<<< Updated upstream
 {"ts":"2026-04-27T05:50:27.117Z","event":"client.event_loop_lag","tf":"5m","data":{"lagMs":3072,"activeTf":"5m","lastGoodAt":1777266678094},"ip":"::ffff:127.0.0.1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
 {"ts":"2026-04-27T05:50:31.047Z","event":"step_error","timeframe":"5m","step":"polymarket.snapshot","durationMs":4002,"error":"Gamma events by series timeout after 4000ms"}
 {"ts":"2026-04-27T05:50:31.065Z","event":"step_error","timeframe":"15m","step":"polymarket.snapshot","durationMs":4014,"error":"Gamma events by series timeout after 4000ms"}
@@ -7675,3 +7676,71 @@
 {"ts":"2026-04-27T06:37:17.113Z","event":"client.event_loop_lag","tf":"5m","data":{"lagMs":6845,"activeTf":"5m","lastGoodAt":1777271828006},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
 {"ts":"2026-04-27T06:37:37.265Z","event":"client.event_loop_lag","tf":"5m","data":{"lagMs":5118,"activeTf":"5m","lastGoodAt":1777271828006},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
 {"ts":"2026-04-27T06:37:44.403Z","event":"client.event_loop_lag","tf":"5m","data":{"lagMs":12252,"activeTf":"5m","lastGoodAt":1777271828006},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+=======
+{"ts":"2026-04-27T06:50:24.690Z","event":"client.event_loop_lag","tf":"5m","data":{"lagMs":2631,"activeTf":"5m","lastGoodAt":1777272618059},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T06:50:40.088Z","event":"client.event_loop_lag","tf":"5m","data":{"lagMs":5897,"activeTf":"5m","lastGoodAt":1777272631820},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T06:50:49.482Z","event":"loop_stalled","loopId":100,"ageMs":8241,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T06:50:50.109Z","event":"loop_slow","loopId":100,"durationMs":8868}
+{"ts":"2026-04-27T06:50:52.042Z","event":"tick_reentry_blocked","timeframe":"5m"}
+{"ts":"2026-04-27T06:50:52.043Z","event":"tick_reentry_blocked","timeframe":"15m"}
+{"ts":"2026-04-27T06:50:58.447Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 8s","ageMs":8241,"loopId":100},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T06:51:04.129Z","event":"tick_reentry_blocked","timeframe":"5m"}
+{"ts":"2026-04-27T06:51:04.130Z","event":"tick_reentry_blocked","timeframe":"15m"}
+{"ts":"2026-04-27T06:51:06.301Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":25060}
+{"ts":"2026-04-27T06:51:06.312Z","event":"slow_tick","timeframe":"5m","durationMs":25071,"marketSlug":"btc-updown-5m-1777272600"}
+{"ts":"2026-04-27T06:51:07.806Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":26562}
+{"ts":"2026-04-27T06:51:07.808Z","event":"slow_tick","timeframe":"15m","durationMs":26565,"marketSlug":"btc-updown-15m-1777272300"}
+{"ts":"2026-04-27T06:51:13.800Z","event":"loop_stalled","loopId":104,"ageMs":6222,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T06:51:13.814Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":6237}
+{"ts":"2026-04-27T06:51:13.815Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":6233}
+{"ts":"2026-04-27T06:51:13.844Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":6259}
+{"ts":"2026-04-27T06:51:13.849Z","event":"slow_tick","timeframe":"5m","durationMs":6271,"marketSlug":"btc-updown-5m-1777272600"}
+{"ts":"2026-04-27T06:51:13.853Z","event":"loop_slow","loopId":104,"durationMs":6276}
+{"ts":"2026-04-27T06:51:17.664Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 6s","ageMs":6222,"loopId":104},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T06:51:37.936Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":15370}
+{"ts":"2026-04-27T06:51:37.966Z","event":"slow_tick","timeframe":"5m","durationMs":15400,"marketSlug":"btc-updown-5m-1777272600"}
+{"ts":"2026-04-27T06:51:37.998Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":15429}
+{"ts":"2026-04-27T06:51:38.027Z","event":"slow_tick","timeframe":"15m","durationMs":15458,"marketSlug":"btc-updown-15m-1777272300"}
+{"ts":"2026-04-27T06:51:38.032Z","event":"loop_slow","loopId":105,"durationMs":15467}
+{"ts":"2026-04-27T06:52:17.581Z","event":"loop_stalled","loopId":106,"ageMs":18545,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T06:52:17.591Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":18555}
+{"ts":"2026-04-27T06:52:17.602Z","event":"slow_tick","timeframe":"5m","durationMs":18566,"marketSlug":"btc-updown-5m-1777272600"}
+{"ts":"2026-04-27T06:52:17.612Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":18575}
+{"ts":"2026-04-27T06:52:17.616Z","event":"slow_tick","timeframe":"15m","durationMs":18579,"marketSlug":"btc-updown-15m-1777272300"}
+{"ts":"2026-04-27T06:52:17.618Z","event":"loop_slow","loopId":106,"durationMs":18582}
+{"ts":"2026-04-27T06:52:45.865Z","event":"slow_step","timeframe":"15m","step":"binance.last_price","durationMs":9004}
+{"ts":"2026-04-27T06:52:45.875Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":9013}
+{"ts":"2026-04-27T06:52:54.525Z","event":"loop_stalled","loopId":107,"ageMs":17669,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T06:53:03.975Z","event":"slow_step","timeframe":"5m","step":"binance.klines","durationMs":27119}
+{"ts":"2026-04-27T06:53:03.977Z","event":"slow_step","timeframe":"5m","step":"binance.last_price","durationMs":27120}
+{"ts":"2026-04-27T06:53:03.994Z","event":"slow_tick","timeframe":"5m","durationMs":27138,"marketSlug":"btc-updown-5m-1777272600"}
+{"ts":"2026-04-27T06:53:03.998Z","event":"slow_step","timeframe":"15m","step":"binance.klines","durationMs":27138}
+{"ts":"2026-04-27T06:53:03.987Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":27129}
+{"ts":"2026-04-27T06:53:04.024Z","event":"slow_tick","timeframe":"15m","durationMs":27164,"marketSlug":"btc-updown-15m-1777272300"}
+{"ts":"2026-04-27T06:53:04.027Z","event":"loop_slow","loopId":107,"durationMs":27171}
+>>>>>>> Stashed changes
+{"ts":"2026-04-27T06:56:42.852Z","event":"loop_slow","loopId":97,"durationMs":10943}
+{"ts":"2026-04-27T06:56:42.856Z","event":"slow_step","timeframe":"5m","step":"chainlink.price","durationMs":10946}
+{"ts":"2026-04-27T06:56:42.856Z","event":"slow_step","timeframe":"15m","step":"chainlink.price","durationMs":10944}
+{"ts":"2026-04-27T06:56:42.863Z","event":"slow_tick","timeframe":"5m","durationMs":10954,"marketSlug":"btc-updown-5m-1777272900"}
+{"ts":"2026-04-27T06:56:42.868Z","event":"slow_tick","timeframe":"15m","durationMs":10957,"marketSlug":"btc-updown-15m-1777272300"}
+{"ts":"2026-04-27T06:56:56.724Z","event":"loop_stalled","loopId":98,"ageMs":8722,"tickTimeoutMs":8000}
+{"ts":"2026-04-27T06:57:01.377Z","event":"loop_slow","loopId":98,"durationMs":13373}
+{"ts":"2026-04-27T06:57:01.573Z","event":"slow_step","timeframe":"15m","step":"chainlink.price","durationMs":13566}
+{"ts":"2026-04-27T06:57:01.572Z","event":"slow_step","timeframe":"5m","step":"chainlink.price","durationMs":13568}
+{"ts":"2026-04-27T06:57:05.561Z","event":"tick_reentry_blocked","timeframe":"5m"}
+{"ts":"2026-04-27T06:57:05.562Z","event":"tick_reentry_blocked","timeframe":"15m"}
+{"ts":"2026-04-27T06:57:05.570Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":17564}
+{"ts":"2026-04-27T06:57:05.580Z","event":"slow_tick","timeframe":"5m","durationMs":17578,"marketSlug":"btc-updown-5m-1777272900"}
+{"ts":"2026-04-27T06:57:05.582Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":17575}
+{"ts":"2026-04-27T06:57:05.586Z","event":"slow_tick","timeframe":"15m","durationMs":17579,"marketSlug":"btc-updown-15m-1777272300"}
+{"ts":"2026-04-27T06:57:11.567Z","event":"client.engine_status","tf":"5m","data":{"status":"stalled","message":"Loop principal sem finalizar ha 9s","ageMs":8722,"loopId":98},"ip":"::1","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"}
+{"ts":"2026-04-27T06:57:33.484Z","event":"loop_slow","loopId":100,"durationMs":19931}
+{"ts":"2026-04-27T06:57:44.685Z","event":"tick_reentry_blocked","timeframe":"5m"}
+{"ts":"2026-04-27T06:57:44.686Z","event":"tick_reentry_blocked","timeframe":"15m"}
+{"ts":"2026-04-27T06:57:44.694Z","event":"slow_step","timeframe":"5m","step":"chainlink.price","durationMs":31137}
+{"ts":"2026-04-27T06:57:44.695Z","event":"slow_step","timeframe":"15m","step":"chainlink.price","durationMs":31135}
+{"ts":"2026-04-27T06:57:44.695Z","event":"slow_step","timeframe":"5m","step":"polymarket.snapshot","durationMs":31137}
+{"ts":"2026-04-27T06:57:44.706Z","event":"slow_tick","timeframe":"5m","durationMs":31152,"marketSlug":"btc-updown-5m-1777272900"}
+{"ts":"2026-04-27T06:57:44.710Z","event":"slow_step","timeframe":"15m","step":"polymarket.snapshot","durationMs":31150}
+{"ts":"2026-04-27T06:57:44.715Z","event":"slow_tick","timeframe":"15m","durationMs":31155,"marketSlug":"btc-updown-15m-1777272300"}
