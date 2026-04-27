@@ -42,6 +42,7 @@ export function startPolymarketChainlinkPriceStream({
 
   let lastPrice = null;
   let lastUpdatedAt = null;
+  let lastReceivedAt = null;
 
   const connect = () => {
     if (closed) return;
@@ -100,9 +101,10 @@ export function startPolymarketChainlinkPriceStream({
 
       lastPrice = price;
       lastUpdatedAt = updatedAtMs ?? lastUpdatedAt;
+      lastReceivedAt = Date.now();
 
       if (typeof onUpdate === "function") {
-        onUpdate({ price: lastPrice, updatedAt: lastUpdatedAt, source: "polymarket_ws" });
+        onUpdate({ price: lastPrice, updatedAt: lastUpdatedAt, receivedAt: lastReceivedAt, source: "polymarket_ws" });
       }
     });
 
@@ -114,7 +116,7 @@ export function startPolymarketChainlinkPriceStream({
 
   return {
     getLast() {
-      return { price: lastPrice, updatedAt: lastUpdatedAt, source: "polymarket_ws" };
+      return { price: lastPrice, updatedAt: lastUpdatedAt, receivedAt: lastReceivedAt, source: "polymarket_ws" };
     },
     close() {
       closed = true;

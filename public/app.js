@@ -28,6 +28,10 @@ function fmtPct(n, d = 2) {
   if (n === null || n === undefined || !Number.isFinite(Number(n))) return "—";
   return Number(n).toFixed(d) + "%";
 }
+function fmtPolyPrice(p) {
+  if (p === null || p === undefined || !Number.isFinite(Number(p))) return "STALE";
+  return `${(Number(p) * 100).toFixed(0)}c`;
+}
 function fmtDelta(usd, close) {
   if (usd === null || !Number.isFinite(Number(usd))) return "—";
   const sign = usd > 0 ? "+" : usd < 0 ? "-" : "";
@@ -191,8 +195,8 @@ function renderRealtime(d) {
 
   // ── Polymarket ──
   const poly = d.polymarket;
-  document.getElementById("polyUp").textContent = poly.upPrice !== null ? (poly.upPrice).toFixed(2) + "¢" : "—";
-  document.getElementById("polyDown").textContent = poly.downPrice !== null ? (poly.downPrice).toFixed(2) + "¢" : "—";
+  document.getElementById("polyUp").textContent = fmtPolyPrice(poly.upPrice);
+  document.getElementById("polyDown").textContent = fmtPolyPrice(poly.downPrice);
   document.getElementById("polyLiquidity").textContent = fmt(poly.liquidity, 0);
 
   document.getElementById("priceToBeat").textContent = poly.priceToBeat !== null ? `$${fmt(poly.priceToBeat, 0)}` : "—";
@@ -203,6 +207,9 @@ function renderRealtime(d) {
   const deltaStr = poly.priceDelta !== null ? ` (${poly.priceDelta > 0 ? "+" : ""}$${poly.priceDelta.toFixed(2)})` : "";
   const cpClass = poly.priceDelta > 0 ? "color-up" : poly.priceDelta < 0 ? "color-down" : "";
   cpEl.innerHTML = `<span class="${cpClass}">${cpVal}${deltaStr}</span>`;
+  if (!poly.currentPriceFresh) {
+    cpEl.innerHTML = `<span class="color-warn">STALE</span>`;
+  }
   if (oldText !== cpEl.textContent && poly.priceDelta !== null) {
     flash(cpEl, poly.priceDelta);
   }

@@ -67,6 +67,7 @@ import { backfillSimTradesFromHistory, enrichSimRowsWithTradeHistory, persistSim
 import { isPostgresEnabled } from "./storage/db.js";
 import { buildTradeHistoryAnalysis } from "./storage/tradeHistoryAnalysis.js";
 import { ensureTradeHistorySchema, listTradeHistoryRecords, upsertTradeHistoryRecords } from "./storage/tradeHistoryStore.js";
+import { ensureRuntimeEventSchema, insertRuntimeEvent } from "./storage/runtimeEventStore.js";
 
 applyGlobalProxyFromEnv();
 
@@ -480,6 +481,39 @@ function logEngineDiagnostic(event, data = {}, level = "warn") {
   else console.warn(msg);
 }
 
+function persistRuntimeRow({ eventType, timeframe, marketSlug, timestamp, header, values, filePath }) {
+  if (isPostgresEnabled()) {
+    insertRuntimeEvent({ eventType, timeframe, marketSlug, timestamp, header, values }).catch(err => {
+      logEngineDiagnostic("runtime_event_insert_error", {
+        eventType,
+        timeframe,
+        marketSlug,
+        error: err?.message || String(err)
+      }, "error");
+    });
+    return;
+  }
+  appendCsvRow(filePath, header, values);
+}
+
+function persistRuntimeRaw({ eventType, timeframe, marketSlug, timestamp, raw, filePath = null }) {
+  if (isPostgresEnabled()) {
+    insertRuntimeEvent({ eventType, timeframe, marketSlug, timestamp, raw }).catch(err => {
+      logEngineDiagnostic("runtime_event_insert_error", {
+        eventType,
+        timeframe,
+        marketSlug,
+        error: err?.message || String(err)
+      }, "error");
+    });
+    return;
+  }
+  if (filePath) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), "utf8");
+  }
+}
+
 function timeoutAfter(ms, label) {
   return new Promise((_, reject) => {
     setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
@@ -666,7 +700,7 @@ function getBtcSession(now = new Date()) {
 // Polymarket resolver (per-timeframe)
 // ────────────────────────────────────────────────────────
 
-function createPolymarketResolver(preset) {
+function createPolymarketResolver(preset, tfLabel) {
   const cache = { market: null, fetchedAtMs: 0 };
 
   async function resolve() {
@@ -715,32 +749,47 @@ function createPolymarketResolver(preset) {
 
     let upClobPrice = null, downClobPrice = null;
     let upOb = {}, downOb = {};
-    const clobEnrichment = Promise.all([
+    let priceFresh = false;
+    const clobPrices = Promise.all([
       fetchClobPrice({ tokenId: upTokenId, side: "buy" }),
-      fetchClobPrice({ tokenId: downTokenId, side: "buy" }),
+      fetchClobPrice({ tokenId: downTokenId, side: "buy" })
+    ]);
+    clobPrices.catch(() => {});
+
+    const clobBooks = Promise.all([
       fetchOrderBook({ tokenId: upTokenId }),
       fetchOrderBook({ tokenId: downTokenId })
     ]);
-    // Prevent unhandled rejection if this Promise.all loses the race below
+    // Prevent unhandled rejection if these promises lose the race below
     // and the individual fetches later reject (e.g. CLOB timeout fires after budget).
-    clobEnrichment.catch(() => {});
+    clobBooks.catch(() => {});
 
     try {
-      const [upP, downP, uOb, dOb] = await Promise.race([
-        clobEnrichment,
-        timeoutAfter(CONFIG.polymarketSnapshotClobBudgetMs, `polymarket clob enrich ${tfLabel}`)
+      const [upP, downP] = await Promise.race([
+        clobPrices,
+        timeoutAfter(CONFIG.polymarketSnapshotClobBudgetMs, `polymarket clob price ${tfLabel}`)
       ]);
-      upClobPrice = upP; downClobPrice = downP;
+      upClobPrice = upP;
+      downClobPrice = downP;
+      priceFresh = Number.isFinite(upClobPrice) && Number.isFinite(downClobPrice);
+    } catch {
+      // Do not fall back to Gamma for tradable prices. A stale Polymarket
+      // price is worse than no price for entry decisions.
+    }
+
+    clobBooks.then(([uOb, dOb]) => {
       upOb = summarizeOrderBook(uOb);
       downOb = summarizeOrderBook(dOb);
-    } catch {
-      // Keep Gamma prices when CLOB enrichment is slow/unavailable.
-    }
+    }).catch(() => {});
 
     return {
       ok: true,
       market,
-      prices: { up: upClobPrice ?? gammaUp, down: downClobPrice ?? gammaDown },
+      prices: { up: priceFresh ? upClobPrice : null, down: priceFresh ? downClobPrice : null },
+      gammaPrices: { up: gammaUp, down: gammaDown },
+      priceFresh,
+      priceSource: priceFresh ? "clob" : "unavailable",
+      priceFetchedAt: Date.now(),
       orderbook: { up: upOb, down: downOb },
       tokenIds: { up: upTokenId, down: downTokenId }
     };
@@ -778,7 +827,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
   const preset = WINDOW_PRESETS[windowMinutes];
   const tfLabel = `${windowMinutes}m`;
   const csvPath = `./logs/snapshots_${tfLabel}.csv`;
-  const polyResolver = createPolymarketResolver(preset);
+  const polyResolver = createPolymarketResolver(preset, tfLabel);
 
   // Per-timeframe state
   let previousChainlinkPrice = null;
@@ -893,14 +942,23 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       if (name === "Consensus Edge") ceWalletBalance += trade.pnl;
 
       const tradeMode = polyTrader.dryRun ? "DRY_RUN" : "LIVE";
-      appendCsvRow(tradesCsvPath, tradesCsvHeader, [
+      const simTradeRow = [
         new Date().toISOString(), pending.slug, pending.windowMinutes, name,
         pos.side, pos.entryPrice, pos.timeLeft.toFixed(3),
         outcome, won, trade.pnl, stake, tradeMode, pos.explanation || "",
         pos._tradeResult?.tokenId || "",
         pos._tradeResult?.orderId || "",
         pos._tradeResult?.timestamp || ""
-      ]);
+      ];
+      persistRuntimeRow({
+        eventType: "sim_trade",
+        timeframe: tfLabel,
+        marketSlug: pending.slug,
+        timestamp: simTradeRow[0],
+        header: tradesCsvHeader,
+        values: simTradeRow,
+        filePath: tradesCsvPath
+      });
     }
     summary.pnl = Math.round((summary.returned - summary.invested) * 10000) / 10000;
     resolvedTrades.unshift(summary);
@@ -1058,13 +1116,19 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       const binanceTickTs = binanceTick?.ts ?? null;
       const polymarketTick = sharedStreams.polymarketLiveStream.getLast();
       const polymarketLivePrice = polymarketTick?.price ?? null;
+      const polymarketLiveReceivedAt = polymarketTick?.receivedAt ?? null;
+      const polymarketLiveAgeMs = polymarketLiveReceivedAt ? Date.now() - polymarketLiveReceivedAt : null;
+      const polymarketCurrentFresh = polymarketLivePrice !== null
+        && polymarketLiveAgeMs !== null
+        && polymarketLiveAgeMs <= CONFIG.polymarketCurrentPriceMaxAgeMs;
+      const polymarketCurrentPrice = polymarketCurrentFresh ? polymarketLivePrice : null;
 
       const chainlinkTick = sharedStreams.chainlinkStream.getLast();
       const chainlinkLivePrice = chainlinkTick?.price ?? null;
       const chainlinkTickTs = chainlinkTick?.updatedAt ?? null;
 
     // Fetch data — priority: polymarket WS > chainlink WS > HTTP
-    const chainlinkPricePromise = polymarketLivePrice !== null
+    const chainlinkPricePromise = polymarketCurrentFresh
       ? Promise.resolve({ price: polymarketLivePrice, updatedAt: polymarketTick?.updatedAt ?? null, source: "polymarket_ws" })
       : chainlinkLivePrice !== null
         ? Promise.resolve({ price: chainlinkLivePrice, updatedAt: chainlinkTick?.updatedAt ?? null, source: "chainlink_ws" })
@@ -1120,6 +1184,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     // Polymarket
     const marketPriceUp = polymarketData.ok ? polymarketData.prices.up : null;
     const marketPriceDown = polymarketData.ok ? polymarketData.prices.down : null;
+    const polymarketPricesFresh = Boolean(polymarketData.ok && polymarketData.priceFresh);
     const upTokenId = polymarketData.ok ? polymarketData.tokenIds?.up : null;
     const downTokenId = polymarketData.ok ? polymarketData.tokenIds?.down : null;
     const edgeResult = computeEdge({ modelUp: timeAdjustedProb.adjustedUp, modelDown: timeAdjustedProb.adjustedDown, marketYes: marketPriceUp, marketNo: marketPriceDown });
@@ -1176,7 +1241,8 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     const oracleSpreadPct = (exchangePrices.length >= 2 && chainlinkPrice !== null && Number.isFinite(chainlinkPrice) && chainlinkPrice > 0) ? ((Math.max(...exchangePrices) - Math.min(...exchangePrices)) / chainlinkPrice) * 100 : null;
 
     const liquidityAmount = polymarketData.ok ? (Number(polymarketData.market?.liquidityNum) || Number(polymarketData.market?.liquidity) || null) : null;
-    const priceToBeatDelta = (chainlinkPrice !== null && priceToBeatForScalp !== null) ? chainlinkPrice - priceToBeatForScalp : null;
+    const currentPriceForPolymarket = polymarketCurrentPrice;
+    const priceToBeatDelta = (currentPriceForPolymarket !== null && priceToBeatForScalp !== null) ? currentPriceForPolymarket - priceToBeatForScalp : null;
 
     // EMA / Stoch / OBV display labels
     const stochRsiCrossLabel = stochRsiResult === null ? "" : stochRsiResult.crossUp ? " ✕UP" : stochRsiResult.crossDown ? " ✕DN" : "";
@@ -1326,6 +1392,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       if (!simPositions[marketSlug]) simPositions[marketSlug] = {};
       const pos = simPositions[marketSlug];
       const tryOpenStandardPosition = ({ name, side, price, stake, explanation, posKey, indicatorName }) => {
+        if (!polymarketPricesFresh) return false;
         // posKey defaults to indicator name
         const key = posKey || name;
         const displayName = indicatorName || name;
@@ -1470,13 +1537,13 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       marketSlug,
       candleElapsedMs: candleTiming.elapsedMs,
       priceToBeat: priceToBeatForScalp,
-      currentPrice: chainlinkPrice,
+      currentPrice: currentPriceForPolymarket,
       exchangeMedian: scalpExchangeMedian,
       marketPriceUp,
       marketPriceDown,
       signals: simSignals,
       config: scalpConfig,
-      enabled: scalpEnabled
+      enabled: scalpEnabled && polymarketCurrentFresh && polymarketPricesFresh
     });
 
     // ── Scalp Force LIVE dispatch ──
@@ -1618,9 +1685,18 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       applyScalpTradeToWallet(scalpWallet, trade);
       scalpCumulative[trade.indicator] = scalpWallet.balance;
       try {
-        appendCsvRow(scalpCsvPath, SCALP_CSV_HEADER, closedTradeToCsvRow(trade));
+        const scalpRow = closedTradeToCsvRow(trade);
+        persistRuntimeRow({
+          eventType: "scalp_trade",
+          timeframe: tfLabel,
+          marketSlug: trade.marketSlug || marketSlug,
+          timestamp: trade.exitTime || trade.entryTime || new Date().toISOString(),
+          header: SCALP_CSV_HEADER,
+          values: scalpRow,
+          filePath: scalpCsvPath
+        });
       } catch (err) {
-        console.error(`❌ [${tfLabel}] scalp CSV write failed:`, err?.message);
+        console.error(`❌ [${tfLabel}] scalp persist failed:`, err?.message);
       }
 
       // Expiração/rollover é excluída: mercado já encerrado, Polymarket resolve sozinho.
@@ -1642,12 +1718,14 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       if (slug && !dumpedMarketSlugs.has(slug)) {
         dumpedMarketSlugs.add(slug);
         try {
-          fs.mkdirSync("./logs", { recursive: true });
-          fs.writeFileSync(
-            path.join("./logs", `polymarket_market_${slug}.json`),
-            JSON.stringify(polymarketData.market, null, 2),
-            "utf8"
-          );
+          persistRuntimeRaw({
+            eventType: "polymarket_market",
+            timeframe: tfLabel,
+            marketSlug: slug,
+            timestamp: new Date().toISOString(),
+            raw: polymarketData.market,
+            filePath: path.join("./logs", `polymarket_market_${slug}.json`)
+          });
         } catch { /* ignore */ }
       }
     }
@@ -1659,8 +1737,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     let analysisResult = null;
     if (shouldSnapshot) {
       snapshotSavedForSlug = marketSlug;
-      // Persist snapshot CSV (still useful for raw data)
-      appendCsvRow(csvPath, snapshotCsvHeader, [
+      const snapshotRow = [
         new Date().toISOString(), marketSlug, windowMinutes, minutesLeft.toFixed(3),
         timeAdjustedProb?.adjustedUp, timeAdjustedProb?.adjustedDown,
         heikenAshiStreak?.color, heikenAshiStreak?.count,
@@ -1678,7 +1755,16 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
         oracleLagMs, binanceVsOracle, oracleSpreadPct,
         regimeInfo.regime, signalLabel, edgeResult.edgeUp, edgeResult.edgeDown,
         decision.action === "ENTER" ? `${decision.side}:${decision.phase}:${decision.strength}` : "NO_TRADE"
-      ]);
+      ];
+      persistRuntimeRow({
+        eventType: "snapshot",
+        timeframe: tfLabel,
+        marketSlug,
+        timestamp: snapshotRow[0],
+        header: snapshotCsvHeader,
+        values: snapshotRow,
+        filePath: csvPath
+      });
 
       // ── Defer simulated trade resolution to async resolver ──
       // The resolver consults Polymarket's `outcomePrices` as canonical truth
@@ -1756,8 +1842,14 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
         },
         polymarket: {
           upPrice: marketPriceUp, downPrice: marketPriceDown,
+          priceFresh: polymarketPricesFresh,
+          priceSource: polymarketData.ok ? polymarketData.priceSource : "unavailable",
+          priceFetchedAt: polymarketData.ok ? polymarketData.priceFetchedAt : null,
           liquidity: liquidityAmount, priceToBeat: priceToBeatForScalp,
-          currentPrice: chainlinkPrice, priceDelta: priceToBeatDelta
+          currentPrice: currentPriceForPolymarket, priceDelta: priceToBeatDelta,
+          currentPriceFresh: polymarketCurrentFresh,
+          currentPriceAgeMs: polymarketLiveAgeMs,
+          currentPriceSource: polymarketCurrentFresh ? "polymarket_ws" : "stale_or_unavailable"
         },
         exchanges: {
           binance: { price: exchanges.binance.price, volume: exchanges.binance.volume },
@@ -2032,6 +2124,7 @@ async function main() {
 
   if (isPostgresEnabled()) {
     await ensureTradeHistorySchema();
+    await ensureRuntimeEventSchema();
     console.log("✅ Postgres trade_history pronto");
   }
 
@@ -2551,7 +2644,7 @@ async function main() {
           const d = payload.data;
           const wm = d.market?.windowMinutes ?? (payload.timeframe === "15m" ? 15 : 5);
           const entryMin = wm - (d.market?.timeLeft ?? 0);
-          appendCsvRow(signalsCsvPath, signalsCsvHeader, [
+          const signalRow = [
             new Date().toISOString(),
             wm,
             entryMin.toFixed(3),
@@ -2565,7 +2658,16 @@ async function main() {
             null, // edge_up not in tick payload (computed in engine)
             null, // edge_down
             d.signal ?? "NO_TRADE"
-          ]);
+          ];
+          persistRuntimeRow({
+            eventType: "signal",
+            timeframe: payload.timeframe,
+            marketSlug: d.market?.slug || null,
+            timestamp: signalRow[0],
+            header: signalsCsvHeader,
+            values: signalRow,
+            filePath: signalsCsvPath
+          });
         }
       }
     } catch (err) {

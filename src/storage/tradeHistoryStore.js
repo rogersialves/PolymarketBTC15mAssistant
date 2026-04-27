@@ -1,5 +1,7 @@
 import { query } from "./db.js";
 
+let schemaReadyPromise = null;
+
 function toNum(value, fallback = null) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -69,6 +71,8 @@ export function dbRowToTradeHistoryRecord(row) {
 }
 
 export async function ensureTradeHistorySchema() {
+  if (schemaReadyPromise) return schemaReadyPromise;
+  schemaReadyPromise = (async () => {
   await query(`
     CREATE TABLE IF NOT EXISTS trade_history (
       id bigserial PRIMARY KEY,
@@ -101,6 +105,13 @@ export async function ensureTradeHistorySchema() {
   await query(`CREATE INDEX IF NOT EXISTS trade_history_market_slug_idx ON trade_history ((metadata->>'marketSlug'))`);
   await query(`CREATE INDEX IF NOT EXISTS trade_history_indicator_idx ON trade_history ((metadata->>'indicator'))`);
   await query(`CREATE INDEX IF NOT EXISTS trade_history_timeframe_idx ON trade_history ((metadata->>'timeframe'))`);
+  })();
+  try {
+    await schemaReadyPromise;
+  } catch (err) {
+    schemaReadyPromise = null;
+    throw err;
+  }
 }
 
 export async function upsertTradeHistoryRecords(records = []) {

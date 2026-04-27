@@ -9,7 +9,10 @@ function toNumber(x) {
 const baseCooldownUntil = new Map();
 let preferredBaseUrl = null;
 const klinesCache = new Map();
+const klinesInFlight = new Map();
 let lastPriceCache = { value: null, fetchedAt: 0 };
+let lastPriceInFlight = null;
+let lastPriceNextRefreshAt = 0;
 
 function getOrderedBases() {
   const bases = Array.isArray(CONFIG.binanceBaseUrls) && CONFIG.binanceBaseUrls.length
@@ -80,50 +83,103 @@ export async function fetchKlines({ interval, limit }) {
   if (cached?.data?.length && Date.now() - cached.fetchedAt < CONFIG.binanceKlinesCacheMs) {
     return cached.data;
   }
+  if (cached?.data?.length) {
+    if (cached.nextRefreshAt && Date.now() < cached.nextRefreshAt) {
+      return cached.data;
+    }
+    if (!klinesInFlight.has(cacheKey)) {
+      const refresh = fetchKlinesFromNetwork({ interval, limit, cacheKey })
+        .catch(err => {
+          cached.nextRefreshAt = Date.now() + CONFIG.binanceRefreshRetryMs;
+          console.warn(`⚠️  Binance klines refresh falhou; mantendo candles em cache: ${err?.message || err}`);
+          return cached.data;
+        })
+        .finally(() => klinesInFlight.delete(cacheKey));
+      klinesInFlight.set(cacheKey, refresh);
+    }
+    return cached.data;
+  }
+  if (klinesInFlight.has(cacheKey)) {
+    return klinesInFlight.get(cacheKey);
+  }
+
+  const request = fetchKlinesFromNetwork({ interval, limit, cacheKey });
+  klinesInFlight.set(cacheKey, request);
 
   try {
-    const data = await fetchBinanceJson("/api/v3/klines", {
-      symbol: CONFIG.symbol,
-      interval,
-      limit
-    }, "Binance klines");
-
-    const parsed = data.map((k) => ({
-      openTime: Number(k[0]),
-      open: toNumber(k[1]),
-      high: toNumber(k[2]),
-      low: toNumber(k[3]),
-      close: toNumber(k[4]),
-      volume: toNumber(k[5]),
-      closeTime: Number(k[6])
-    }));
-    klinesCache.set(cacheKey, { data: parsed, fetchedAt: Date.now() });
-    return parsed;
+    return await request;
   } catch (err) {
     if (cached?.data?.length) {
       console.warn(`⚠️  Binance klines falhou; usando candles em cache: ${err?.message || err}`);
       return cached.data;
     }
     throw err;
+  } finally {
+    klinesInFlight.delete(cacheKey);
   }
+}
+
+async function fetchKlinesFromNetwork({ interval, limit, cacheKey }) {
+  const data = await fetchBinanceJson("/api/v3/klines", {
+    symbol: CONFIG.symbol,
+    interval,
+    limit
+  }, "Binance klines");
+
+  const parsed = data.map((k) => ({
+    openTime: Number(k[0]),
+    open: toNumber(k[1]),
+    high: toNumber(k[2]),
+    low: toNumber(k[3]),
+    close: toNumber(k[4]),
+    volume: toNumber(k[5]),
+    closeTime: Number(k[6])
+  }));
+  klinesCache.set(cacheKey, { data: parsed, fetchedAt: Date.now(), nextRefreshAt: 0 });
+  return parsed;
 }
 
 export async function fetchLastPrice() {
   if (lastPriceCache.value !== null && Date.now() - lastPriceCache.fetchedAt < CONFIG.binanceLastPriceCacheMs) {
     return lastPriceCache.value;
   }
+  if (lastPriceCache.value !== null) {
+    if (lastPriceNextRefreshAt && Date.now() < lastPriceNextRefreshAt) {
+      return lastPriceCache.value;
+    }
+    if (!lastPriceInFlight) {
+      lastPriceInFlight = fetchLastPriceFromNetwork()
+        .catch(err => {
+          lastPriceNextRefreshAt = Date.now() + CONFIG.binanceRefreshRetryMs;
+          console.warn(`⚠️  Binance last price refresh falhou; mantendo preço em cache: ${err?.message || err}`);
+          return lastPriceCache.value;
+        })
+        .finally(() => { lastPriceInFlight = null; });
+    }
+    return lastPriceCache.value;
+  }
+  if (lastPriceInFlight) return lastPriceInFlight;
+
+  lastPriceInFlight = fetchLastPriceFromNetwork();
 
   try {
-    const data = await fetchBinanceJson("/api/v3/ticker/price", {
-      symbol: CONFIG.symbol
-    }, "Binance last price");
-    lastPriceCache = { value: toNumber(data.price), fetchedAt: Date.now() };
-    return lastPriceCache.value;
+    return await lastPriceInFlight;
   } catch (err) {
     if (lastPriceCache.value !== null) {
       console.warn(`⚠️  Binance last price falhou; usando preço em cache: ${err?.message || err}`);
       return lastPriceCache.value;
     }
     throw err;
+  } finally {
+    lastPriceInFlight = null;
   }
+}
+
+async function fetchLastPriceFromNetwork() {
+  const data = await fetchBinanceJson("/api/v3/ticker/price", {
+    symbol: CONFIG.symbol
+  }, "Binance last price");
+  lastPriceCache = { value: toNumber(data.price), fetchedAt: Date.now() };
+  lastPriceNextRefreshAt = 0;
+  return lastPriceCache.value;
 }

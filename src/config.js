@@ -43,12 +43,14 @@ export const CONFIG = {
   slowTickMs: Number(process.env.ENGINE_SLOW_TICK_MS || 3_000),
   watchdogMs: Number(process.env.ENGINE_WATCHDOG_MS || 6_000),
   binanceFailoverBudgetMs: Number(process.env.BINANCE_FAILOVER_BUDGET_MS || 9_000),
+  binanceRefreshRetryMs: Number(process.env.BINANCE_REFRESH_RETRY_MS || 15_000),
   polymarketSnapshotClobBudgetMs: Number(process.env.POLYMARKET_SNAPSHOT_CLOB_BUDGET_MS || 1_500),
   polymarketResolveCacheMs: Number(process.env.POLYMARKET_RESOLVE_CACHE_MS || 15_000),
   binanceKlinesCacheMs: Number(process.env.BINANCE_KLINES_CACHE_MS || 10_000),
   binanceLastPriceCacheMs: Number(process.env.BINANCE_LAST_PRICE_CACHE_MS || 2_000),
   exchangeTickerCacheMs: Number(process.env.EXCHANGE_TICKER_CACHE_MS || 10_000),
   candleWindowMinutes: 5,
+  polymarketCurrentPriceMaxAgeMs: Number(process.env.POLYMARKET_CURRENT_PRICE_MAX_AGE_MS || 1_500),
 
   // Indicators
   vwapSlopeLookbackMinutes: 3,

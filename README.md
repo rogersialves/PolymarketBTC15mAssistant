@@ -196,6 +196,14 @@ npm start
 - If the console looks like it “spams” lines:
   - The renderer uses `readline.cursorTo` + `clearScreenDown` for a stable, static screen, but some terminals may still behave differently.
 
+## Testes em Terminal
+
+```bash
+# Em outro terminal:
+watch -n 5 'ps -o pid,etime,pcpu,pmem,rss,cmd -C node | grep server.js'
+tail -f logs/engine_watchdog.jsonl | grep -E 'slow_|stalled'
+```
+
 ## Safety
 
 This is not financial advice. Use at your own risk.

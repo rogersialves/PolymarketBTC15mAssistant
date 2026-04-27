@@ -14,6 +14,7 @@ let preferredRpcUrl = null;
 let cachedDecimals = null;
 let cachedResult = { price: null, updatedAt: null, source: "chainlink" };
 let cachedFetchedAtMs = 0;
+let latestFetchInFlight = null;
 const MIN_FETCH_INTERVAL_MS = 2_000;
 const RPC_TIMEOUT_MS = 1_500;
 
@@ -239,7 +240,25 @@ export async function fetchChainlinkBtcUsd() {
   if (cachedFetchedAtMs && now - cachedFetchedAtMs < MIN_FETCH_INTERVAL_MS) {
     return cachedResult;
   }
+  if (cachedResult.price !== null) {
+    if (!latestFetchInFlight) {
+      latestFetchInFlight = fetchChainlinkBtcUsdFromNetwork(now)
+        .catch(() => cachedResult)
+        .finally(() => { latestFetchInFlight = null; });
+    }
+    return cachedResult;
+  }
+  if (latestFetchInFlight) return latestFetchInFlight;
 
+  latestFetchInFlight = fetchChainlinkBtcUsdFromNetwork(now);
+  try {
+    return await latestFetchInFlight;
+  } finally {
+    latestFetchInFlight = null;
+  }
+}
+
+async function fetchChainlinkBtcUsdFromNetwork(now = Date.now()) {
   const rpcs = getOrderedRpcs();
   if (rpcs.length === 0) return { price: null, updatedAt: null, source: "missing_config" };
 

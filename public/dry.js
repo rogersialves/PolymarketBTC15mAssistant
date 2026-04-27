@@ -66,6 +66,11 @@ function fmtPct(n, d = 2) {
   return Number(n).toFixed(d) + "%";
 }
 
+function fmtPolyPrice(p) {
+  if (p === null || p === undefined || !Number.isFinite(Number(p))) return "STALE";
+  return `${(Number(p) * 100).toFixed(0)}c`;
+}
+
 function fmtDelta(usd, close) {
   if (usd === null || !Number.isFinite(Number(usd))) return "—";
   const sign = usd > 0 ? "+" : usd < 0 ? "-" : "";
@@ -396,14 +401,17 @@ function renderDashIndicators(d) {
 
   const poly = d.polymarket;
   if (poly) {
-    setText("dpolyUp", poly.upPrice !== null ? poly.upPrice.toFixed(2) + "¢" : "—");
-    setText("dpolyDown", poly.downPrice !== null ? poly.downPrice.toFixed(2) + "¢" : "—");
+    setText("dpolyUp", fmtPolyPrice(poly.upPrice));
+    setText("dpolyDown", fmtPolyPrice(poly.downPrice));
     setText("dpolyLiquidity", fmt(poly.liquidity, 0));
     setText("dpriceToBeat", poly.priceToBeat !== null ? `$${fmt(poly.priceToBeat, 0)}` : "—");
     const cpVal = poly.currentPrice !== null ? `$${fmt(poly.currentPrice, 2)}` : "—";
     const deltaStr = poly.priceDelta !== null ? ` (${poly.priceDelta > 0 ? "+" : ""}$${poly.priceDelta.toFixed(2)})` : "";
     const cpClass = poly.priceDelta > 0 ? "color-up" : poly.priceDelta < 0 ? "color-down" : "";
     setHTML("dcurrentPrice", `<span class="${cpClass}">${cpVal}${deltaStr}</span>`);
+    if (!poly.currentPriceFresh) {
+      setHTML("dcurrentPrice", `<span class="color-warn">STALE</span>`);
+    }
   }
 
   const ex = d.exchanges;
