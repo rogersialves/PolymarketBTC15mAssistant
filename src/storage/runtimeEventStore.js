@@ -1,6 +1,18 @@
 import { query } from "./db.js";
 
 let schemaReadyPromise = null;
+let insertDisabledUntilMs = 0;
+
+function isTransientDbError(err) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return (
+    msg.includes("timeout")
+    || msg.includes("connection terminated")
+    || msg.includes("connect")
+    || msg.includes("econn")
+    || msg.includes("server closed the connection")
+  );
+}
 
 function normalizeTimestamp(value) {
   const d = value ? new Date(value) : new Date();
@@ -62,19 +74,33 @@ export async function ensureRuntimeEventSchema() {
 }
 
 export async function insertRuntimeEvent(input) {
+  if (Date.now() < insertDisabledUntilMs) {
+    return null;
+  }
+
   await ensureRuntimeEventSchema();
   const row = buildRuntimeEventRow(input);
-  await query(`
-    INSERT INTO runtime_events (event_type, timeframe, market_slug, timestamp, raw)
-    VALUES ($1, $2, $3, $4, $5::jsonb)
-  `, [
-    row.event_type,
-    row.timeframe,
-    row.market_slug,
-    row.timestamp,
-    JSON.stringify(row.raw)
-  ]);
-  return row;
+  try {
+    await query(`
+      INSERT INTO runtime_events (event_type, timeframe, market_slug, timestamp, raw)
+      VALUES ($1, $2, $3, $4, $5::jsonb)
+    `, [
+      row.event_type,
+      row.timeframe,
+      row.market_slug,
+      row.timestamp,
+      JSON.stringify(row.raw)
+    ]);
+    return row;
+  } catch (err) {
+    if (isTransientDbError(err)) {
+      const cooldownMs = Number(process.env.RUNTIME_EVENTS_DB_COOLDOWN_MS || 60_000);
+      insertDisabledUntilMs = Date.now() + Math.max(5_000, cooldownMs);
+      console.warn(`⚠️  runtime_events temporariamente desabilitado por ${Math.round((insertDisabledUntilMs - Date.now()) / 1000)}s: ${err?.message || err}`);
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function countRuntimeEvents(eventType = null) {

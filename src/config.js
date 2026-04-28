@@ -98,7 +98,7 @@ export const CONFIG = {
   // Chainlink oracle (Polygon)
   chainlink: {
     polygonRpcUrls: (process.env.POLYGON_RPC_URLS || "").split(",").map((s) => s.trim()).filter(Boolean),
-    polygonRpcUrl: process.env.POLYGON_RPC_URL || "https://polygon-rpc.com",
+    polygonRpcUrl: process.env.POLYGON_RPC_URL || "",
     polygonWssUrls: (process.env.POLYGON_WSS_URLS || "").split(",").map((s) => s.trim()).filter(Boolean),
     polygonWssUrl: process.env.POLYGON_WSS_URL || "",
     btcUsdAggregator: process.env.CHAINLINK_BTC_USD_AGGREGATOR || "0xc907E116054Ad103354f2D350FD2514433D57F6f"

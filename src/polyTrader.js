@@ -41,6 +41,10 @@ export class PolyTrader {
     this.openOrders = [];
     this.usdcBalance = null;
 
+    // Dirty tracking — only flush new/mutated records to Postgres
+    this._flushedLength = 0;    // index up to which orderHistory was already persisted
+    this._mutatedRecords = [];  // existing records that were updated (e.g. resolution)
+
     // Persistent history file
     this._historyPath = resolve("./logs/trade_history.json");
     this._historySaveDebounceMs = Math.max(50, Number(process.env.TRADE_HISTORY_SAVE_DEBOUNCE_MS || 250));
@@ -58,6 +62,7 @@ export class PolyTrader {
         const data = await listTradeHistoryRecords();
         if (Array.isArray(data) && data.length > 0) {
           this.orderHistory = data;
+          this._flushedLength = data.length; // já estão no DB — não re-enviar
           const live = data.filter(t => !t.dryRun).length;
           const dry  = data.filter(t =>  t.dryRun).length;
           console.log(`📂 [PolyTrader] Histórico carregado do Postgres: ${data.length} operações (${live} LIVE, ${dry} SIM)`);
@@ -84,7 +89,14 @@ export class PolyTrader {
     try {
       if (isPostgresEnabled()) {
         await ensureTradeHistorySchema();
-        await upsertTradeHistoryRecords(this.orderHistory);
+        // Dirty tracking: enviar apenas registros novos + mutações (não todo o histórico)
+        const mutated = this._mutatedRecords.splice(0);
+        const newRecords = this.orderHistory.slice(this._flushedLength);
+        const toFlush = [...mutated, ...newRecords];
+        if (toFlush.length > 0) {
+          await upsertTradeHistoryRecords(toFlush);
+          this._flushedLength = this.orderHistory.length;
+        }
         return;
       }
       const diskHistory = readTradeHistoryFile(this._historyPath);
@@ -563,6 +575,7 @@ export class PolyTrader {
     if (!sellAccepted) {
       buy.exitRejected = true;
       buy.executionStatus = buy.executionStatus === "resolved" ? "resolved" : "exit_rejected";
+      this._mutatedRecords.push(buy);
       this._saveHistory();
       return false;
     }
@@ -571,6 +584,7 @@ export class PolyTrader {
     buy.resolved = true;
     buy.exitRejected = false;
     buy.executionStatus = "resolved";
+    this._mutatedRecords.push(buy);
     this._saveHistory();
     return true;
   }

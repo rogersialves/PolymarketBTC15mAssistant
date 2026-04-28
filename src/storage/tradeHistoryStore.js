@@ -118,18 +118,46 @@ export async function upsertTradeHistoryRecords(records = []) {
   if (!Array.isArray(records) || records.length === 0) return { upserted: 0 };
   await ensureTradeHistorySchema();
 
+  const CHUNK = 200;
   let upserted = 0;
-  for (const record of records) {
-    const row = buildTradeHistoryDbRow(record);
+
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const chunk = records.slice(i, i + CHUNK);
+    const rows = chunk.map(buildTradeHistoryDbRow);
+
+    const dedupeKeys   = rows.map(r => r.dedupe_key);
+    const timestampMs  = rows.map(r => r.timestamp_ms);
+    const sides        = rows.map(r => r.side);
+    const prices       = rows.map(r => r.price);
+    const sizeUsds     = rows.map(r => r.size_usd);
+    const sharesArr    = rows.map(r => r.shares);
+    const tokenIds     = rows.map(r => r.token_id);
+    const orderIds     = rows.map(r => r.order_id);
+    const statuses     = rows.map(r => r.status);
+    const execStatuses = rows.map(r => r.execution_status);
+    const dryRuns      = rows.map(r => r.dry_run);
+    const resolveds    = rows.map(r => r.resolved);
+    const mktCloseds   = rows.map(r => r.market_closed);
+    const mktResolveds = rows.map(r => r.market_resolved);
+    const wons         = rows.map(r => r.won);
+    const pnls         = rows.map(r => r.pnl);
+    const metadatas    = rows.map(r => JSON.stringify(r.metadata));
+    const raws         = rows.map(r => JSON.stringify(r.raw));
+
     await query(`
       INSERT INTO trade_history (
         dedupe_key, timestamp_ms, side, price, size_usd, shares, token_id, order_id,
         status, execution_status, dry_run, resolved, market_closed, market_resolved,
         won, pnl, metadata, raw
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8,
-        $9, $10, $11, $12, $13, $14,
-        $15, $16, $17::jsonb, $18::jsonb
+      )
+      SELECT * FROM UNNEST(
+        $1::text[], $2::bigint[], $3::text[], $4::numeric[], $5::numeric[], $6::numeric[],
+        $7::text[], $8::text[], $9::text[], $10::text[], $11::boolean[], $12::boolean[],
+        $13::boolean[], $14::boolean[], $15::boolean[], $16::numeric[], $17::jsonb[], $18::jsonb[]
+      ) AS t(
+        dedupe_key, timestamp_ms, side, price, size_usd, shares, token_id, order_id,
+        status, execution_status, dry_run, resolved, market_closed, market_resolved,
+        won, pnl, metadata, raw
       )
       ON CONFLICT (dedupe_key) DO UPDATE SET
         timestamp_ms = EXCLUDED.timestamp_ms,
@@ -151,27 +179,14 @@ export async function upsertTradeHistoryRecords(records = []) {
         raw = EXCLUDED.raw,
         updated_at = now()
     `, [
-      row.dedupe_key,
-      row.timestamp_ms,
-      row.side,
-      row.price,
-      row.size_usd,
-      row.shares,
-      row.token_id,
-      row.order_id,
-      row.status,
-      row.execution_status,
-      row.dry_run,
-      row.resolved,
-      row.market_closed,
-      row.market_resolved,
-      row.won,
-      row.pnl,
-      JSON.stringify(row.metadata),
-      JSON.stringify(row.raw)
+      dedupeKeys, timestampMs, sides, prices, sizeUsds, sharesArr,
+      tokenIds, orderIds, statuses, execStatuses, dryRuns, resolveds,
+      mktCloseds, mktResolveds, wons, pnls, metadatas, raws
     ]);
-    upserted++;
+
+    upserted += chunk.length;
   }
+
   return { upserted };
 }
 

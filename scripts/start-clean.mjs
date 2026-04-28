@@ -77,7 +77,7 @@ function startServer() {
   //   when V8 approaches the heap limit, so we can post-mortem actual leaks.
   const nodeOptions = [
     process.env.NODE_OPTIONS || "",
-    "--max-old-space-size=2560",
+    "--max-old-space-size=1792",
     "--heapsnapshot-near-heap-limit=3"
   ].filter(Boolean).join(" ");
 

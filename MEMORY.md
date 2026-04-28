@@ -366,6 +366,118 @@ Sempre testar conectividade primeiro — se `curl -m 5 https://api.binance.com/a
 
 ---
 
+## Sessão: 28/04/2026 — Chainlink real-time + Sistema de debug HTTP/event-loop
+
+### Contexto
+Falhas massivas de timeout em todos os endpoints externos (Chainlink RPC, Binance, Coinbase, Kraken, Polymarket Gamma) com loops continuamente `loop_stalled`. Usuário pediu ação definitiva e atualização em tempo real dos dados Chainlink.
+
+### Diagnóstico inicial — conectividade direta do host
+
+| Endpoint | Status | Diagnóstico |
+|---|---|---|
+| `polygon-rpc.com` (POST JSON-RPC) | 401 | passou a exigir API key |
+| `polygon.llamarpc.com` | DNS/connect fail | inalcançável daqui (gastava 1.5s/tick em timeout) |
+| `rpc.ankr.com/polygon` | 200 com body "Unauthorized" | exige API key |
+| `polygon-bor-rpc.publicnode.com` | 200 (~100ms) | ✅ HTTP + WSS sem auth |
+| `polygon.drpc.org` | 200 (~150ms) | ✅ HTTP + WSS sem auth |
+| `api.binance.com` | 451 | geo-blocked (tratado em outra sessão) |
+| `gamma-api.polymarket.com` | 200 (264ms) curl | OK em isolado, falha sob carga |
+
+---
+
+### 🔴 Bug #19 — Chainlink WS stream nunca subscrevia (POLYGON_WSS_URLS vazio)
+
+**Sintoma:** `chainlinkStream.getLast()` sempre retornava null → tick loop caía no fallback HTTP `fetchChainlinkBtcUsd()` a cada segundo, gastando 3-7s por tick com RPCs quebrados consumindo timeout serial. Watchdog logava `slow_step chainlink.price durationMs=3000-7000`.
+
+**Root cause:**
+
+1. `src/data/chainlinkWs.js` já tinha infra completa de `eth_subscribe` para `AnswerUpdated`, mas o factory retornava no-op stub se `wssUrls.length === 0` — e `POLYGON_WSS_URLS` não estava no `.env`.
+2. RPCs default em `src/data/chainlink.js` (`polygon-rpc.com`, `rpc.ankr.com/polygon`, `polygon.llamarpc.com`) tinham **0/3** funcionando sem API key em 2026-04.
+3. `polygonRpcUrl` default em `src/config.js` era o quebrado `polygon-rpc.com`, sempre incluído no candidate list mesmo com `POLYGON_RPC_URLS` setado.
+
+**Correções aplicadas:**
+
+1. **`.env`** — bloco novo:
+   ```
+   POLYGON_RPC_URLS=https://polygon-bor-rpc.publicnode.com,https://polygon.drpc.org
+   POLYGON_WSS_URLS=wss://polygon-bor-rpc.publicnode.com,wss://polygon.drpc.org
+   CHAINLINK_HTTP_HEARTBEAT_MS=10000
+   ```
+
+2. **`src/data/chainlink.js`** (`getRpcCandidates`) — defaults trocados para os endpoints validados; removidos polygon-rpc.com, ankr e llamarpc.
+
+3. **`src/config.js`** — `polygonRpcUrl` default mudado de `"https://polygon-rpc.com"` para `""` (sem fallback no quebrado).
+
+4. **`src/data/chainlinkWs.js`** — adicionado **heartbeat HTTP** de 10s integrado ao stream:
+   - Importa `fetchChainlinkBtcUsd` de `./chainlink.js`
+   - `runHeartbeat()` chama `fetchChainlinkBtcUsd()` e popula `lastPrice` se WS estiver parado por mais que `WS_FRESHNESS_WINDOW_MS` (30s)
+   - `startHeartbeat()` faz seed imediato + `setInterval(runHeartbeat, HTTP_HEARTBEAT_MS).unref()`
+   - Factory agora roda heartbeat mesmo se `wssUrls.length === 0` — só retorna stub se `aggregator` estiver missing
+   - WS message handler marca `lastSource = "chainlink_ws"`; heartbeat marca `"chainlink_http"` — getLast() expõe a fonte real
+
+**Comportamento agora:**
+
+- Stream sobe → seed em ~180ms → `getLast()` já retorna preço real
+- Tick loop em `src/server.js:1143-1144` toma sempre o ramo `chainlinkLivePrice !== null` → `chainlink.price` step ~0ms
+- Se WS pushar `AnswerUpdated`, vira fonte primária por 30s; se cair, heartbeat segura
+- `fetchChainlinkBtcUsd()` HTTP só executa via heartbeat (a cada 10s, com cache interno de 2s no próprio módulo)
+
+**Invariante a preservar:** `chainlinkWs.js` importa de `chainlink.js`, não o contrário. Não criar ciclo. O `cachedFetchedAtMs`/`MIN_FETCH_INTERVAL_MS=2000` em `chainlink.js` é o que torna seguro chamar `fetchChainlinkBtcUsd()` em alta frequência (heartbeat + fallback do tick loop coexistem sem dobrar tráfego).
+
+---
+
+### 🟡 Diagnóstico em andamento — timeouts escalando após fix Chainlink
+
+**Sintoma residual:** Mesmo com Chainlink corrigido, `polymarket.snapshot` continua expirando com pattern **escalando** 5s → 7s → 8s → 9s entre ticks consecutivos. Coinbase/Kraken também timeout 4s, mas `curl -m 5` direto resolve em <300ms.
+
+**Reprodução isolada (4 URLs × 9 ticks/seg = 36 reqs em 9s):** ZERO timeouts. Confirma que problema é **dentro do processo Node**, não rede.
+
+**Hipóteses ranqueadas:**
+1. Event-loop bloqueado (CPU sync work em parsing JSON gigante, indicators math, GC pauses) — `setTimeout` do timeout não dispara porque loop está parado
+2. DNS thread pool do libuv esgotado (default 4 threads) — `EAI_AGAIN` flagado em smoke test
+3. Undici socket pool/agent fila
+
+---
+
+### 🆕 Sistema de debug HTTP + event-loop
+
+**Arquivos criados:**
+
+- **`src/diagnostics/eventLoopMonitor.js`** — `perf_hooks.monitorEventLoopDelay({ resolution: 20 })`. Loga max/p99/p50/mean por janela de 5s quando max ≥ `EVENT_LOOP_WARN_MS` (default 200ms). Histograma resetado a cada janela.
+
+- **`src/diagnostics/httpDebug.js`** — subscribe via `node:diagnostics_channel` aos eventos undici:
+  - `undici:request:create` / `:headers` / `:trailers` / `:error` — per-request timing (total + TTFB) por `WeakMap<request, entry>`
+  - `undici:client:beforeConnect` / `:connected` / `:connectError` — DNS/connect lifecycle, contador `socketsConnecting` por origin
+  - In-flight counter por origem (Map); relatório periódico a cada 5s logando `req=N slow=N err=N inflight[...] connecting[...]`
+  - Loga `[httpDebug] SLOW/ERR <method> <origin><path> total=Xms ttfb=Yms` quando request ≥ `HTTP_DEBUG_SLOW_MS` (default 1500ms) ou erro
+  - `getHttpDebugSnapshot()` exportado para futuro endpoint de health
+
+**Plugado em `src/server.js:12-19`** (logo após `dotenv/config`, antes de qualquer import que faça HTTP). Crítico: subscribe deve preceder o primeiro request senão a primeira janela perde eventos.
+
+**Toggles via env (default ON):**
+```
+HTTP_DEBUG=0                   # desliga (qualquer valor != "0" liga)
+HTTP_DEBUG_SLOW_MS=1500
+HTTP_DEBUG_REPORT_MS=5000
+EVENT_LOOP_DEBUG=0             # desliga
+EVENT_LOOP_WARN_MS=200
+EVENT_LOOP_RESOLUTION_MS=20
+EVENT_LOOP_REPORT_MS=5000
+```
+
+**Smoke test confirmou:** instrumentação detecta `EAI_AGAIN`, captura SLOW requests com TTFB ≈ total, mede event-loop block injetado de 350ms (loga max=377ms na janela). Subscribe via `safeSubscribe()` com try/catch — falhas em channels inexistentes são silenciosas, nunca quebram o processo.
+
+**Heurística de diagnóstico (a aplicar quando logs do app real chegarem):**
+1. `[loopLag] max=2000ms+` sincronizado com timeouts → event-loop bloqueado → identificar trabalho síncrono pesado nos ticks
+2. `[httpDebug] connectError ... EAI_AGAIN` repetido → DNS pool esgotado → fix: `UV_THREADPOOL_SIZE=16` em `.env`/`NODE_OPTIONS`, considerar `cacheable-lookup`
+3. `[httpDebug] inflight[origin=20+]` com baixo `req=` delta → fila de sockets undici → fix: configurar Agent customizado com `connections` maior + `pipelining`
+4. TTFB ≈ total alto → servidor remoto realmente lento → fix: circuit breaker / aumentar timeout / backoff
+5. loopLag baixo, sem connectError, TTFB OK → race do `fetchWithTimeout` disparando antes da resposta natural completar — sintoma é falso positivo, ajustar timeout
+
+**Invariante a preservar:** Os módulos diagnostic devem ser **opt-out**, nunca lançar exceção que quebre o host. Toda subscribe envolvida em try/catch. Timers via `.unref()` para não segurar exit.
+
+---
+
 ## Melhorias Pendentes (ainda não aplicadas)
 
 ### 🟡 Melhoria #9 — `resolve-pending-trades.mjs` sem timeout no `fetch`

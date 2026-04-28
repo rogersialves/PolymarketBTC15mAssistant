@@ -22,7 +22,15 @@ export function getPool() {
     connectionString,
     max: Number(process.env.POSTGRES_POOL_MAX || 8),
     idleTimeoutMillis: Number(process.env.POSTGRES_IDLE_TIMEOUT_MS || 30_000),
-    connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECT_TIMEOUT_MS || 5_000)
+    // Keep connect timeout tight so analysis fallback does not stall engine tick.
+    connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECT_TIMEOUT_MS || 1_500),
+    query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || 2_000),
+    statement_timeout: Number(process.env.POSTGRES_STATEMENT_TIMEOUT_MS || 2_000),
+    keepAlive: true,
+    allowExitOnIdle: true
+  });
+  pool.on("error", (err) => {
+    console.warn(`⚠️  Postgres pool error: ${err?.message || err}`);
   });
   return pool;
 }

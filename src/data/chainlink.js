@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { CONFIG } from "../config.js";
+import { fetchWithTimeout } from "../net/http.js";
 
 const AGGREGATOR_ABI = [
   "function latestRoundData() view returns (uint80 roundId,int256 answer,uint256 startedAt,uint256 updatedAt,uint80 answeredInRound)",
@@ -17,14 +18,22 @@ let cachedFetchedAtMs = 0;
 let latestFetchInFlight = null;
 const MIN_FETCH_INTERVAL_MS = 2_000;
 const RPC_TIMEOUT_MS = 1_500;
+const NETWORK_BUDGET_MS = Math.max(1_000, Number(process.env.CHAINLINK_NETWORK_BUDGET_MS || 3_000));
+
+function timeoutReject(ms, label) {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+  });
+}
 
 function getRpcCandidates() {
   const fromList = Array.isArray(CONFIG.chainlink.polygonRpcUrls) ? CONFIG.chainlink.polygonRpcUrls : [];
   const single = CONFIG.chainlink.polygonRpcUrl ? [CONFIG.chainlink.polygonRpcUrl] : [];
+  // Defaults sem API key validados em 2026-04: polygon-rpc.com e rpc.ankr.com
+  // passaram a exigir autenticação; polygon.llamarpc.com está inalcançável.
   const defaults = [
-    "https://polygon-rpc.com",
-    "https://rpc.ankr.com/polygon",
-    "https://polygon.llamarpc.com"
+    "https://polygon-bor-rpc.publicnode.com",
+    "https://polygon.drpc.org"
   ];
 
   const all = [...fromList, ...single, ...defaults].map((s) => String(s).trim()).filter(Boolean);
@@ -41,29 +50,24 @@ function getOrderedRpcs() {
 }
 
 async function jsonRpcRequest(rpcUrl, method, params) {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+  const res = await fetchWithTimeout(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+  }, {
+    timeoutMs: RPC_TIMEOUT_MS,
+    label: `Chainlink RPC ${method}`
+  });
 
-  try {
-    const res = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      signal: controller.signal
-    });
-
-    if (!res.ok) {
-      throw new Error(`rpc_http_${res.status}`);
-    }
-
-    const data = await res.json();
-    if (data.error) {
-      throw new Error(`rpc_error_${data.error.code}`);
-    }
-    return data.result;
-  } finally {
-    clearTimeout(t);
+  if (!res.ok) {
+    throw new Error(`rpc_http_${res.status}`);
   }
+
+  const data = await res.json();
+  if (data.error) {
+    throw new Error(`rpc_error_${data.error.code}`);
+  }
+  return data.result;
 }
 
 async function ethCall(rpcUrl, to, data) {
@@ -263,15 +267,28 @@ async function fetchChainlinkBtcUsdFromNetwork(now = Date.now()) {
   if (rpcs.length === 0) return { price: null, updatedAt: null, source: "missing_config" };
 
   const aggregator = CONFIG.chainlink.btcUsdAggregator;
+  const startedAt = Date.now();
 
   for (const rpc of rpcs) {
+    const elapsedMs = Date.now() - startedAt;
+    const remainingBudgetMs = NETWORK_BUDGET_MS - elapsedMs;
+    if (remainingBudgetMs <= 0) {
+      break;
+    }
+
     preferredRpcUrl = rpc;
     try {
-      if (cachedDecimals === null) {
-        cachedDecimals = await fetchDecimals(rpc, aggregator);
-      }
+      const attempt = (async () => {
+        if (cachedDecimals === null) {
+          cachedDecimals = await fetchDecimals(rpc, aggregator);
+        }
+        return await fetchLatestRoundData(rpc, aggregator);
+      })();
 
-      const round = await fetchLatestRoundData(rpc, aggregator);
+      const round = await Promise.race([
+        attempt,
+        timeoutReject(remainingBudgetMs, "Chainlink network budget")
+      ]);
       const answer = Number(round.answer);
       const scale = 10 ** Number(cachedDecimals);
       const price = answer / scale;

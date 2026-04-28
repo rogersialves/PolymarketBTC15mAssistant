@@ -2,8 +2,12 @@ import WebSocket from "ws";
 import { ethers } from "ethers";
 import { CONFIG } from "../config.js";
 import { wsAgentForUrl } from "../net/proxy.js";
+import { fetchChainlinkBtcUsd } from "./chainlink.js";
 
 const ANSWER_UPDATED_TOPIC0 = ethers.id("AnswerUpdated(int256,uint256,uint256)");
+const HTTP_HEARTBEAT_MS = Math.max(2_000, Number(process.env.CHAINLINK_HTTP_HEARTBEAT_MS || 10_000));
+// Se WS atualizou há menos que isso, heartbeat HTTP não sobrescreve.
+const WS_FRESHNESS_WINDOW_MS = 30_000;
 
 function getWssCandidates() {
   const fromList = Array.isArray(CONFIG.chainlink.polygonWssUrls) ? CONFIG.chainlink.polygonWssUrls : [];
@@ -30,7 +34,7 @@ export function startChainlinkPriceStream({
   onUpdate
 } = {}) {
   const wssUrls = getWssCandidates();
-  if (!aggregator || wssUrls.length === 0) {
+  if (!aggregator) {
     return {
       getLast() {
         return { price: null, updatedAt: null, source: "chainlink_ws" };
@@ -46,12 +50,48 @@ export function startChainlinkPriceStream({
 
   let lastPrice = null;
   let lastUpdatedAt = null;
+  let lastSource = "chainlink_ws";
+  let heartbeatTimer = null;
 
   let nextId = 1;
   let subId = null;
 
+  const runHeartbeat = async () => {
+    if (closed) return;
+    try {
+      const result = await fetchChainlinkBtcUsd();
+      const price = result?.price;
+      if (price === null || !Number.isFinite(price)) return;
+
+      // WS é mais preciso quando fresco — só sobrescrevemos se WS está parado.
+      const wsAgeMs = lastUpdatedAt && lastSource === "chainlink_ws"
+        ? Date.now() - lastUpdatedAt
+        : Infinity;
+      if (wsAgeMs <= WS_FRESHNESS_WINDOW_MS) return;
+
+      lastPrice = price;
+      lastUpdatedAt = result.updatedAt || Date.now();
+      lastSource = "chainlink_http";
+      if (typeof onUpdate === "function") {
+        onUpdate({ price: lastPrice, updatedAt: lastUpdatedAt, source: lastSource });
+      }
+    } catch {
+      // ignore — preserva último valor conhecido
+    }
+  };
+
+  // Heartbeat HTTP roda independente do WS: garante que getLast() sempre tem
+  // preço fresco mesmo quando POLYGON_WSS_URLS está vazio ou caiu.
+  const startHeartbeat = () => {
+    if (heartbeatTimer) return;
+    runHeartbeat();
+    heartbeatTimer = setInterval(runHeartbeat, HTTP_HEARTBEAT_MS);
+    if (typeof heartbeatTimer.unref === "function") heartbeatTimer.unref();
+  };
+
   const connect = () => {
     if (closed) return;
+    if (wssUrls.length === 0) return;
 
     const url = wssUrls[urlIndex % wssUrls.length];
     urlIndex += 1;
@@ -126,9 +166,10 @@ export function startChainlinkPriceStream({
 
         lastPrice = Number.isFinite(price) ? price : lastPrice;
         lastUpdatedAt = updatedAt ? updatedAt * 1000 : lastUpdatedAt;
+        lastSource = "chainlink_ws";
 
         if (typeof onUpdate === "function") {
-          onUpdate({ price: lastPrice, updatedAt: lastUpdatedAt, source: "chainlink_ws" });
+          onUpdate({ price: lastPrice, updatedAt: lastUpdatedAt, source: lastSource });
         }
       } catch {
         return;
@@ -139,14 +180,19 @@ export function startChainlinkPriceStream({
     ws.on("error", scheduleReconnect);
   };
 
+  startHeartbeat();
   connect();
 
   return {
     getLast() {
-      return { price: lastPrice, updatedAt: lastUpdatedAt, source: "chainlink_ws" };
+      return { price: lastPrice, updatedAt: lastUpdatedAt, source: lastSource };
     },
     close() {
       closed = true;
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
       try {
         if (ws && subId) {
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "eth_unsubscribe", params: [subId] }));

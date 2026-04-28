@@ -1,0 +1,24 @@
+
+> polyassistent@0.1.0 start
+> node scripts/start-clean.mjs
+
+⚙️  [Config] runtime carregado de /opt/PolymarketBTC15mAssistant/logs/trading_config.runtime.json
+🚀 Starting BTC Polymarket Web Dashboard...
+
+✅ Postgres trade_history pronto
+✅ Dashboard: http://localhost:3000
+   Collecting data for 5m and 15m simultaneously
+
+📂 [PolyTrader] Histórico carregado do Postgres: 2830 operações (203 LIVE, 2627 SIM)
+🔑 [PolyTrader] Wallet EOA: 0xca6d78F7A7C35806718a4eaa69Af100C7D16CA88
+🔗 [PolyTrader] Proxy wallet (env): 0x144a773a56753725B3090942378931f6cFf9E546
+🔑 [PolyTrader] Derivando API keys...
+✅ [PolyTrader] API Key: 1ed590c0...
+🔐 [PolyTrader] SignatureType: POLY_PROXY (1)
+✅ [PolyTrader] Conectado ao CLOB: OK
+💰 [PolyTrader] Saldo USDC: $28.37 (raw="28372519")
+
+🎯 [PolyTrader] Modo: 📡 SCALP MONITOR (SIM) | Max Stake: $40
+[watchdog] step_error {"timeframe":"5m","step":"polymarket.snapshot","durationMs":5917,"error":"polymarket snapshot 5m timeout after 5000ms"}
+[watchdog] step_error {"timeframe":"15m","step":"polymarket.snapshot","durationMs":5917,"error":"polymarket snapshot 15m timeout after 5000ms"}
+[watchdog] loop_slow {"loopId":92,"durationMs":5921}

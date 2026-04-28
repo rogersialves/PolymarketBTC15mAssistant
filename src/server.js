@@ -10,6 +10,14 @@ import dns from "node:dns";
 dns.setDefaultResultOrder("ipv4first");
 
 import "dotenv/config";
+
+// Diagnostics — must subscribe before any HTTP traffic begins so we capture
+// the very first requests. Both modules are no-ops if disabled via env.
+import { startEventLoopMonitor } from "./diagnostics/eventLoopMonitor.js";
+import { startHttpDebug } from "./diagnostics/httpDebug.js";
+startEventLoopMonitor();
+startHttpDebug();
+
 import express from "express";
 import http from "node:http";
 import { WebSocketServer } from "ws";
@@ -119,6 +127,10 @@ const ONLY_5M_INDICATORS  = new Set(["Top3 5m",  "Delta 3m Fade 5m"]);
 const FADE_INDICATORS = new Set(["Delta 3m Fade 5m", "Delta 3m Fade 15m"]);
 const DEFAULT_STAKE = 1; // $1 default per indicator
 const POLYMARKET_MIN_ORDER_SHARES = 5;
+const SIM_ANALYSIS_TIMEOUT_MS = Number(process.env.SIM_ANALYSIS_TIMEOUT_MS || 1_200);
+const ANALYSIS_REFRESH_MS = Number(process.env.ANALYSIS_REFRESH_MS || 15_000);
+const CHAINLINK_STEP_TIMEOUT_MS = Number(process.env.CHAINLINK_STEP_TIMEOUT_MS || 3_500);
+const POLYMARKET_SNAPSHOT_TIMEOUT_MS = Number(process.env.POLYMARKET_SNAPSHOT_TIMEOUT_MS || 5_000);
 const RUNTIME_CONFIG_PATH = path.join(__dirname, "..", "logs", "trading_config.runtime.json");
 const LEGACY_RUNTIME_CONFIG_PATH = path.join(process.cwd(), "logs", "trading_config.runtime.json");
 
@@ -703,6 +715,10 @@ function getBtcSession(now = new Date()) {
 function createPolymarketResolver(preset, tfLabel) {
   const cache = { market: null, fetchedAtMs: 0 };
 
+  function getCachedMarket() {
+    return cache.market;
+  }
+
   async function resolve() {
     const now = Date.now();
     if (cache.market && now - cache.fetchedAtMs < CONFIG.polymarketResolveCacheMs) return cache.market;
@@ -795,7 +811,7 @@ function createPolymarketResolver(preset, tfLabel) {
     };
   }
 
-  return { resolve, fetchSnapshot };
+  return { resolve, fetchSnapshot, getCachedMarket };
 }
 
 // ────────────────────────────────────────────────────────
@@ -839,6 +855,8 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
   let dumpedMarketSlugs = new Set();
   let lastAnalysis = null;
   let lastBroadcastedAnalysis = null;
+  const analysisByMode = new Map();
+  const analysisInFlightByMode = new Map();
 
   // ── Simulated trade tracking ──
   // { [slug]: { [indicatorName]: { side, entryPrice, timeLeft, ts, stake, shares } } }
@@ -967,7 +985,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
 
     // Push updated wallet data to all connected clients immediately
     try {
-      computeSimAnalysis("SIMULATION")
+      refreshAnalysisCache("SIMULATION")
         .then(updatedAnalysis => {
           if (updatedAnalysis) {
             broadcast({ type: "analysis", timeframe: tfLabel, data: updatedAnalysis, mode: "SIMULATION" });
@@ -1136,9 +1154,49 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
 
     const [candles1m, chainlinkData, binanceLastPrice, polymarketData] = await Promise.all([
       timedStep("binance.klines", () => fetchKlines({ symbol: CONFIG.symbol, interval: "1m", limit: 200 })),
-      timedStep("chainlink.price", () => chainlinkPricePromise),
+      timedStep("chainlink.price", async () => {
+        try {
+          return await withTimeout(chainlinkPricePromise, CHAINLINK_STEP_TIMEOUT_MS, `chainlink price ${tfLabel}`);
+        } catch (err) {
+          const fallbackPrice = chainlinkLivePrice ?? previousChainlinkPrice ?? null;
+          if (fallbackPrice !== null) {
+            console.warn(`⚠️  [${tfLabel}] chainlink timeout; usando preço em cache/stream: ${err?.message || err}`);
+            return {
+              price: fallbackPrice,
+              updatedAt: chainlinkTickTs ?? Date.now(),
+              source: chainlinkLivePrice !== null ? "chainlink_ws" : "chainlink_cache"
+            };
+          }
+          throw err;
+        }
+      }),
       timedStep("binance.last_price", () => binanceLivePrice !== null ? Promise.resolve(binanceLivePrice) : fetchLastPrice()),
-      timedStep("polymarket.snapshot", () => polyResolver.fetchSnapshot())
+      timedStep("polymarket.snapshot", async () => {
+        try {
+          return await withTimeout(
+            polyResolver.fetchSnapshot(),
+            POLYMARKET_SNAPSHOT_TIMEOUT_MS,
+            `polymarket snapshot ${tfLabel}`
+          );
+        } catch (err) {
+          const cachedMarket = polyResolver.getCachedMarket();
+          if (cachedMarket) {
+            console.warn(`⚠️  [${tfLabel}] polymarket snapshot timeout; usando cache sem preços: ${err?.message || err}`);
+            return {
+              ok: true,
+              market: cachedMarket,
+              prices: { up: null, down: null },
+              gammaPrices: { up: null, down: null },
+              priceFresh: false,
+              priceSource: "timeout_cache",
+              priceFetchedAt: Date.now(),
+              orderbook: { up: {}, down: {} },
+              tokenIds: { up: null, down: null }
+            };
+          }
+          throw err;
+        }
+      })
     ]);
 
     // Settlement timing
@@ -1734,7 +1792,6 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     const shouldSnapshot = marketSlug && minutesLeft <= 0.15 && snapshotSavedForSlug !== marketSlug;
     if (marketSlug && snapshotSavedForSlug !== null && snapshotSavedForSlug !== marketSlug) snapshotSavedForSlug = null;
 
-    let analysisResult = null;
     if (shouldSnapshot) {
       snapshotSavedForSlug = marketSlug;
       const snapshotRow = [
@@ -1790,14 +1847,8 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
         processPendingSimResolutions().catch(() => {});
       }
 
-      // ── Run analysis from sim trades (entry-based) with fallback ──
-      const simResult = await computeSimAnalysis();
-      if (simResult && simResult.totalSnapshots >= 1) {
-        analysisResult = simResult;
-      } else {
-        analysisResult = runAnalysis(csvPath, lastAnalysis, windowMinutes);
-      }
-      lastAnalysis = analysisResult;
+      // Analysis moved out of tick path. It is refreshed asynchronously and
+      // served from cache to avoid blocking the event loop under degradation.
     }
 
     previousChainlinkPrice = chainlinkPrice ?? previousChainlinkPrice;
@@ -1808,13 +1859,9 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       logEngineDiagnostic("slow_tick", { timeframe: tfLabel, durationMs: tickDurationMs, marketSlug }, "warn");
     }
 
-      // Only attach analysis to the broadcast payload when it actually changed
-      // since the previous tick. computeSimAnalysis returns the same object
-      // reference until sim_trades.csv or trade_history.json is rewritten, and
-      // the frontend already keeps the last `analysis` cached client-side. This
-      // avoids serializing ~250 KB of wallet histories every second.
-      const analysisChanged = analysisResult !== lastBroadcastedAnalysis;
-      if (analysisChanged) lastBroadcastedAnalysis = analysisResult;
+      const cachedAnalysis = analysisByMode.get("*") || null;
+      const analysisChanged = cachedAnalysis !== lastBroadcastedAnalysis;
+      if (analysisChanged) lastBroadcastedAnalysis = cachedAnalysis;
 
       const payload = {
       type: "tick",
@@ -1879,7 +1926,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
         trading: polyTrader.getStatus()
       }
       };
-      if (analysisChanged) payload.analysis = analysisResult;
+      if (analysisChanged) payload.analysis = cachedAnalysis;
       lastTickPayload = payload;
       return payload;
     })();
@@ -1902,7 +1949,11 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
   async function computeSimAnalysis(filterMode) {
     if (isPostgresEnabled()) {
       try {
-        const tradeHistory = await listTradeHistoryRecords();
+        const tradeHistory = await withTimeout(
+          listTradeHistoryRecords(),
+          SIM_ANALYSIS_TIMEOUT_MS,
+          `${tfLabel} trade_history analysis`
+        );
         const result = buildTradeHistoryAnalysis(tradeHistory, {
           timeframeLabel: tfLabel,
           filterMode,
@@ -2090,20 +2141,60 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     return result;
   }
 
+  function emptyAnalysis() {
+    return { totalSnapshots: 0, upCount: 0, downCount: 0, indicators: [], candles: [], wallets: [], source: "empty" };
+  }
+
+  async function recomputeAnalysis(filterMode) {
+    const modeKey = filterMode || "*";
+    const simResult = await computeSimAnalysis(filterMode);
+    let result = null;
+    if (simResult && simResult.totalSnapshots >= 1) {
+      result = simResult;
+    } else if (!filterMode) {
+      result = runAnalysis(csvPath, lastAnalysis, windowMinutes) || emptyAnalysis();
+      lastAnalysis = result;
+    } else {
+      result = emptyAnalysis();
+    }
+    analysisByMode.set(modeKey, result);
+    return result;
+  }
+
+  async function refreshAnalysisCache(filterMode) {
+    const modeKey = filterMode || "*";
+    if (analysisInFlightByMode.has(modeKey)) {
+      return analysisInFlightByMode.get(modeKey);
+    }
+    const p = recomputeAnalysis(filterMode)
+      .catch((err) => {
+        console.warn(`⚠️  [${tfLabel}] refresh analysis cache falhou (${modeKey}): ${err?.message || err}`);
+        return analysisByMode.get(modeKey) || emptyAnalysis();
+      })
+      .finally(() => analysisInFlightByMode.delete(modeKey));
+    analysisInFlightByMode.set(modeKey, p);
+    return p;
+  }
+
+  setInterval(() => {
+    refreshAnalysisCache().catch(() => {});
+  }, ANALYSIS_REFRESH_MS).unref?.();
+
+  // Prime cache shortly after startup and then keep periodic refreshes.
+  setTimeout(() => {
+    refreshAnalysisCache().catch(() => {});
+  }, 2_000).unref?.();
+
   return {
     tick,
     getAnalysis: async () => {
-      // Try sim-based analysis first (entry-based evaluation) — ALL modes (Dashboard)
-      const simResult = await computeSimAnalysis(); // no filter
-      if (simResult && simResult.totalSnapshots >= 1) return simResult;
-      // Fall back to snapshot-based analysis
-      return runAnalysis(csvPath, lastAnalysis, windowMinutes);
+      if (analysisByMode.has("*")) return analysisByMode.get("*");
+      return await refreshAnalysisCache();
     },
     getAnalysisForMode: async (filterMode) => {
-      // Filtered analysis — only rows matching the given mode (e.g. DRY_RUN)
-      const simResult = await computeSimAnalysis(filterMode);
-      if (simResult && simResult.totalSnapshots >= 1) return simResult;
-      return { totalSnapshots: 0, upCount: 0, downCount: 0, indicators: [], candles: [], wallets: [], source: "empty" };
+      const modeKey = filterMode || "*";
+      if (analysisByMode.has(modeKey)) return analysisByMode.get(modeKey);
+      return await refreshAnalysisCache(filterMode);
     }
   };
 }
@@ -2578,105 +2669,108 @@ async function main() {
     "regime", "signal", "model_up", "model_down",
     "mkt_up", "mkt_down", "edge_up", "edge_down", "recommendation"
   ];
-  let lastSignalWriteMs = 0;
-
-  // Main loop — ticks both engines simultaneously each second
+  const lastSignalWriteByTf = new Map();
   let lastTradeRefreshMs = 0;
-  const loopWatch = {
-    id: 0,
-    running: false,
-    startedAt: 0,
-    lastLoggedAt: 0
-  };
-  setInterval(() => {
-    if (!loopWatch.running) return;
-    const ageMs = Date.now() - loopWatch.startedAt;
-    if (ageMs < CONFIG.watchdogMs) return;
-    if (Date.now() - loopWatch.lastLoggedAt < CONFIG.watchdogMs) return;
-    loopWatch.lastLoggedAt = Date.now();
-    const message = `Loop principal sem finalizar ha ${Math.round(ageMs / 1000)}s`;
-    logEngineDiagnostic("loop_stalled", {
-      loopId: loopWatch.id,
-      ageMs,
-      tickTimeoutMs: CONFIG.tickTimeoutMs
-    }, "error");
-    broadcast({
-      type: "engine_status",
-      status: "stalled",
-      message,
-      ageMs,
-      loopId: loopWatch.id
-    });
-  }, 1_000).unref?.();
 
-  while (true) {
-    try {
+  function persistSignalRowFromPayload(payload) {
+    if (!payload || payload.type !== "tick" || !payload.data) return;
+    const tf = payload.timeframe === "15m" ? "15m" : "5m";
+    const now = Date.now();
+    const lastWrite = lastSignalWriteByTf.get(tf) || 0;
+    if (now - lastWrite < 15_000) return;
+    lastSignalWriteByTf.set(tf, now);
+
+    const d = payload.data;
+    const wm = d.market?.windowMinutes ?? (tf === "15m" ? 15 : 5);
+    const entryMin = wm - (d.market?.timeLeft ?? 0);
+    const signalRow = [
+      new Date().toISOString(),
+      wm,
+      entryMin.toFixed(3),
+      (d.market?.timeLeft ?? 0).toFixed(3),
+      d.regime ?? "-",
+      d.signal ?? "NO TRADE",
+      d.indicators?.taPredict?.longPct ?? null,
+      d.indicators?.taPredict?.shortPct ?? null,
+      d.polymarket?.upPrice ?? null,
+      d.polymarket?.downPrice ?? null,
+      null,
+      null,
+      d.signal ?? "NO_TRADE"
+    ];
+    persistRuntimeRow({
+      eventType: "signal",
+      timeframe: tf,
+      marketSlug: d.market?.slug || null,
+      timestamp: signalRow[0],
+      header: signalsCsvHeader,
+      values: signalRow,
+      filePath: signalsCsvPath
+    });
+  }
+
+  function startEngineRunner(timeframe, engine) {
+    const loopWatch = {
+      id: 0,
+      running: false,
+      startedAt: 0,
+      lastLoggedAt: 0
+    };
+
+    setInterval(() => {
+      if (!loopWatch.running) return;
+      const ageMs = Date.now() - loopWatch.startedAt;
+      if (ageMs < CONFIG.watchdogMs) return;
+      if (Date.now() - loopWatch.lastLoggedAt < CONFIG.watchdogMs) return;
+      loopWatch.lastLoggedAt = Date.now();
+      const message = `Loop ${timeframe} sem finalizar ha ${Math.round(ageMs / 1000)}s`;
+      logEngineDiagnostic("loop_stalled", {
+        loopId: loopWatch.id,
+        timeframe,
+        ageMs,
+        tickTimeoutMs: CONFIG.tickTimeoutMs
+      }, "error");
+      broadcast({
+        type: "engine_status",
+        timeframe,
+        status: "stalled",
+        message,
+        ageMs,
+        loopId: loopWatch.id
+      });
+    }, 1_000).unref?.();
+
+    setInterval(async () => {
+      if (loopWatch.running) return;
       loopWatch.id++;
       loopWatch.running = true;
       loopWatch.startedAt = Date.now();
-      const [payload5m, payload15m] = await Promise.all([
-        withTimeout(engine5m.tick(), CONFIG.tickTimeoutMs, "engine 5m tick")
-          .catch(err => ({ type: "error", timeframe: "5m", error: formatEngineError(err) })),
-        withTimeout(engine15m.tick(), CONFIG.tickTimeoutMs, "engine 15m tick")
-          .catch(err => ({ type: "error", timeframe: "15m", error: formatEngineError(err) }))
-      ]);
-      const loopDurationMs = Date.now() - loopWatch.startedAt;
-      loopWatch.running = false;
-      if (loopDurationMs >= CONFIG.slowTickMs) {
-        logEngineDiagnostic("loop_slow", { loopId: loopWatch.id, durationMs: loopDurationMs }, "warn");
-      }
-      broadcast(payload5m);
-      broadcast(payload15m);
-
-      // Refresh LIVE trade resolution every 60s
-      const nowMs = Date.now();
-      if (nowMs - lastTradeRefreshMs >= 60_000) {
-        lastTradeRefreshMs = nowMs;
-        polyTrader.refreshTradeResults().catch(() => {});
-      }
-
-      // Write signals.csv every 15s (both timeframes)
-      const now = Date.now();
-      if (now - lastSignalWriteMs >= 15_000) {
-        lastSignalWriteMs = now;
-        for (const payload of [payload5m, payload15m]) {
-          if (payload.type !== "tick" || !payload.data) continue;
-          const d = payload.data;
-          const wm = d.market?.windowMinutes ?? (payload.timeframe === "15m" ? 15 : 5);
-          const entryMin = wm - (d.market?.timeLeft ?? 0);
-          const signalRow = [
-            new Date().toISOString(),
-            wm,
-            entryMin.toFixed(3),
-            (d.market?.timeLeft ?? 0).toFixed(3),
-            d.regime ?? "-",
-            d.signal ?? "NO TRADE",
-            d.indicators?.taPredict?.longPct ?? null,
-            d.indicators?.taPredict?.shortPct ?? null,
-            d.polymarket?.upPrice ?? null,
-            d.polymarket?.downPrice ?? null,
-            null, // edge_up not in tick payload (computed in engine)
-            null, // edge_down
-            d.signal ?? "NO_TRADE"
-          ];
-          persistRuntimeRow({
-            eventType: "signal",
-            timeframe: payload.timeframe,
-            marketSlug: d.market?.slug || null,
-            timestamp: signalRow[0],
-            header: signalsCsvHeader,
-            values: signalRow,
-            filePath: signalsCsvPath
-          });
+      try {
+        const payload = await withTimeout(engine.tick(), CONFIG.tickTimeoutMs, `engine ${timeframe} tick`)
+          .catch(err => ({ type: "error", timeframe, error: formatEngineError(err) }));
+        const loopDurationMs = Date.now() - loopWatch.startedAt;
+        if (loopDurationMs >= CONFIG.slowTickMs) {
+          logEngineDiagnostic("loop_slow", { loopId: loopWatch.id, timeframe, durationMs: loopDurationMs }, "warn");
         }
+        broadcast(payload);
+        persistSignalRowFromPayload(payload);
+
+        const nowMs = Date.now();
+        if (nowMs - lastTradeRefreshMs >= 60_000) {
+          lastTradeRefreshMs = nowMs;
+          polyTrader.refreshTradeResults().catch(() => {});
+        }
+      } catch (err) {
+        console.error(`Loop ${timeframe} error:`, err?.message);
+        logEngineDiagnostic("loop_error", { loopId: loopWatch.id, timeframe, error: formatEngineError(err) }, "error");
+      } finally {
+        loopWatch.running = false;
       }
-    } catch (err) {
-      loopWatch.running = false;
-      console.error("Loop error:", err?.message);
-      logEngineDiagnostic("loop_error", { loopId: loopWatch.id, error: formatEngineError(err) }, "error");
-    }
-    await sleep(1000);
+    }, 1_000);
   }
+
+  startEngineRunner("5m", engine5m);
+  startEngineRunner("15m", engine15m);
 }
 
 main();
