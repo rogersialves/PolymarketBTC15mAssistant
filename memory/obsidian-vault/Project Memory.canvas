@@ -1,0 +1,60 @@
+{
+  "nodes": [
+    {
+      "id": "4f7c0f26a3e64c19",
+      "type": "file",
+      "file": "Memory Index.md",
+      "x": 0,
+      "y": 0,
+      "width": 360,
+      "height": 220
+    },
+    {
+      "id": "9c5342e1d8b744f0",
+      "type": "text",
+      "text": "Session hooks create one note per Codex session in `10-Sessions/`.",
+      "x": -440,
+      "y": 300,
+      "width": 360,
+      "height": 180
+    },
+    {
+      "id": "201c2d8f77c647ce",
+      "type": "file",
+      "file": "Sessions.base",
+      "x": 440,
+      "y": 300,
+      "width": 360,
+      "height": 180
+    },
+    {
+      "id": "60f77d07a2c4463a",
+      "type": "file",
+      "file": "30-Runbooks/Session Lifecycle.md",
+      "x": 0,
+      "y": 560,
+      "width": 360,
+      "height": 200
+    }
+  ],
+  "edges": [
+    {
+      "id": "d77f0f22a2ff4812",
+      "fromNode": "4f7c0f26a3e64c19",
+      "toNode": "9c5342e1d8b744f0",
+      "label": "creates"
+    },
+    {
+      "id": "a3cd550dd26645b7",
+      "fromNode": "4f7c0f26a3e64c19",
+      "toNode": "201c2d8f77c647ce",
+      "label": "indexes"
+    },
+    {
+      "id": "aa27d225f10c4e0f",
+      "fromNode": "4f7c0f26a3e64c19",
+      "toNode": "60f77d07a2c4463a",
+      "label": "explains"
+    }
+  ]
+}

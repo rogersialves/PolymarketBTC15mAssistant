@@ -1,4 +1,5 @@
 import diagnosticsChannel from "node:diagnostics_channel";
+import { diagLog } from "./diagSink.js";
 
 let started = false;
 
@@ -83,7 +84,7 @@ export function startHttpDebug({
       const ttfb = entry.headersAt ? entry.headersAt - entry.t0 : -1;
       const tag = errored ? "ERR" : "SLOW";
       const path = entry.path.length > 80 ? entry.path.slice(0, 77) + "..." : entry.path;
-      console.warn(`[httpDebug] ${tag} ${entry.method} ${entry.origin}${path} total=${total}ms ttfb=${ttfb}ms${errMsg ? ` err=${errMsg}` : ""}`);
+      diagLog(`[httpDebug] ${tag} ${entry.method} ${entry.origin}${path} total=${total}ms ttfb=${ttfb}ms${errMsg ? ` err=${errMsg}` : ""}`, { level: "warn" });
     }
     inflightByRequest.delete(request);
   };
@@ -109,7 +110,7 @@ export function startHttpDebug({
   safeSubscribe("undici:client:connectError", ({ connectParams, error }) => {
     const origin = `${connectParams?.protocol || "https:"}//${connectParams?.hostname || "?"}:${connectParams?.port || "?"}`;
     bump(socketsConnecting, origin, -1);
-    console.warn(`[httpDebug] connectError ${origin} ${error?.code || error?.message}`);
+    diagLog(`[httpDebug] connectError ${origin} ${error?.code || error?.message}`, { level: "warn" });
   });
 
   // No reliable channel for socket close in all undici versions; sockets that
@@ -140,7 +141,7 @@ export function startHttpDebug({
       const parts = [`req=${reqDelta}`, `slow=${slowDelta}`, `err=${errDelta}`];
       if (inflightLines.length) parts.push(`inflight[${inflightLines.join(",")}]`);
       if (connectingLines.length) parts.push(`connecting[${connectingLines.join(",")}]`);
-      console.log(`[httpDebug] ${parts.join(" ")}`);
+      diagLog(`[httpDebug] ${parts.join(" ")}`);
     }
     socketsOpen.clear();
   }, reportIntervalMs);

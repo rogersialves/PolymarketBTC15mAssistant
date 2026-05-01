@@ -1,4 +1,5 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
+import { diagLog } from "./diagSink.js";
 
 let started = false;
 
@@ -25,7 +26,7 @@ export function startEventLoopMonitor({
 
     if (max >= warnMs) {
       const windowSec = ((Date.now() - lastReportedAt) / 1000).toFixed(1);
-      console.warn(`[loopLag] window=${windowSec}s max=${max.toFixed(0)}ms p99=${p99.toFixed(0)}ms p50=${p50.toFixed(0)}ms mean=${mean.toFixed(1)}ms`);
+      diagLog(`[loopLag] window=${windowSec}s max=${max.toFixed(0)}ms p99=${p99.toFixed(0)}ms p50=${p50.toFixed(0)}ms mean=${mean.toFixed(1)}ms`, { level: "warn" });
     }
     histogram.reset();
     lastReportedAt = Date.now();

@@ -18,7 +18,32 @@ let cachedFetchedAtMs = 0;
 let latestFetchInFlight = null;
 const MIN_FETCH_INTERVAL_MS = 2_000;
 const RPC_TIMEOUT_MS = 1_500;
-const NETWORK_BUDGET_MS = Math.max(1_000, Number(process.env.CHAINLINK_NETWORK_BUDGET_MS || 3_000));
+// FIX AE: Budget 3000→1500ms — publicnode gets one full RPC_TIMEOUT_MS attempt;
+// if it fails the remaining budget is ~0ms so no second RPC is tried, eliminating
+// the drpc.org TLS connection that caused the RSS cascade.
+const NETWORK_BUDGET_MS = Math.max(1_000, Number(process.env.CHAINLINK_NETWORK_BUDGET_MS || 1_500));
+
+// FIX AA: Per-RPC failure cooldown. When an RPC fails with connection-refused
+// (err=20) or repeated timeouts it is placed in cooldown. drpc.org was observed
+// taking 2388ms before returning err=20 — longer than its allowed budget slice —
+// because event-loop freezes delayed the budget timer. Cooldown prevents wasting
+// the network budget on a known-bad endpoint.
+const rpcCooldowns = new Map(); // rpcUrl → cooldownUntilMs
+const RPC_REFUSED_COOLDOWN_MS = 5 * 60_000;  // 5 min for connection refused
+const RPC_TIMEOUT_COOLDOWN_MS = 30_000;       // 30 s for generic timeout/error
+
+function isRpcAvailable(rpcUrl) {
+  const until = rpcCooldowns.get(rpcUrl) || 0;
+  return Date.now() >= until;
+}
+
+function markRpcFailed(rpcUrl, err) {
+  const msg = String(err?.message || err || "");
+  // err=20 is ECONNREFUSED — endpoint is actively refusing connections
+  const isRefused = msg.includes("err=20") || msg.includes("ECONNREFUSED") || msg.includes("err_20");
+  const cooldownMs = isRefused ? RPC_REFUSED_COOLDOWN_MS : RPC_TIMEOUT_COOLDOWN_MS;
+  rpcCooldowns.set(rpcUrl, Date.now() + cooldownMs);
+}
 
 function timeoutReject(ms, label) {
   return new Promise((_, reject) => {
@@ -31,9 +56,10 @@ function getRpcCandidates() {
   const single = CONFIG.chainlink.polygonRpcUrl ? [CONFIG.chainlink.polygonRpcUrl] : [];
   // Defaults sem API key validados em 2026-04: polygon-rpc.com e rpc.ankr.com
   // passaram a exigir autenticação; polygon.llamarpc.com está inalcançável.
+  // FIX AE: drpc.org removido — consistentemente falha com ECONNREFUSED (err=20)
+  // após 3400ms, abrindo TLS desnecessária e consumindo budget.
   const defaults = [
-    "https://polygon-bor-rpc.publicnode.com",
-    "https://polygon.drpc.org"
+    "https://polygon-bor-rpc.publicnode.com"
   ];
 
   const all = [...fromList, ...single, ...defaults].map((s) => String(s).trim()).filter(Boolean);
@@ -42,11 +68,15 @@ function getRpcCandidates() {
 
 function getOrderedRpcs() {
   const rpcs = getRpcCandidates();
+  // FIX AA: Filter out RPCs in cooldown before ordering
+  const available = rpcs.filter(isRpcAvailable);
+  // If all are in cooldown, use them all anyway (cooldown is advisory)
+  const candidates = available.length > 0 ? available : rpcs;
   const pref = preferredRpcUrl;
-  if (pref && rpcs.includes(pref)) {
-    return [pref, ...rpcs.filter((x) => x !== pref)];
+  if (pref && candidates.includes(pref)) {
+    return [pref, ...candidates.filter((x) => x !== pref)];
   }
-  return rpcs;
+  return candidates;
 }
 
 async function jsonRpcRequest(rpcUrl, method, params) {
@@ -301,7 +331,8 @@ async function fetchChainlinkBtcUsdFromNetwork(now = Date.now()) {
       cachedFetchedAtMs = now;
       preferredRpcUrl = rpc;
       return cachedResult;
-    } catch {
+    } catch (err) {
+      markRpcFailed(rpc, err);  // FIX AA: record failure for cooldown
       cachedDecimals = null;
       continue;
     }

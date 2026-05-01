@@ -136,6 +136,11 @@ export function buildTradeHistoryAnalysis(records, {
     return { slug, outcome, upSignals, downSignals, models };
   });
 
+  // FIX T: Keep stats separate from history. Do NOT accumulate history in the main loop
+  // to avoid building large per-indicator arrays that get promoted to V8 old generation
+  // and require major GC (276-487ms pauses) on every 15s refresh cycle.
+  const MAX_WALLET_HISTORY = Number(process.env.MAX_WALLET_HISTORY || 50);
+
   const stats = {};
   const wallets = {};
   for (const row of rows) {
@@ -152,8 +157,8 @@ export function buildTradeHistoryAnalysis(records, {
         wins: 0,
         losses: 0,
         invested: 0,
-        returned: 0,
-        history: []
+        returned: 0
+        // FIX T: history NOT built here — collected below from tail of rows[]
       };
     }
     const w = wallets[row.indicator];
@@ -166,7 +171,22 @@ export function buildTradeHistoryAnalysis(records, {
       w.losses++;
     }
     w.balance += row.pnl_usd;
-    w.history.push({
+  }
+
+  // FIX T: Collect only the last MAX_WALLET_HISTORY entries per indicator by iterating
+  // rows in reverse (chronological sort means latest is at the end). This avoids
+  // allocating O(N) history objects for all rows — only O(indicators × MAX) are created.
+  const historyByIndicator = {};
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    const ind = row.indicator;
+    let arr = historyByIndicator[ind];
+    if (arr === undefined) {
+      arr = [];
+      historyByIndicator[ind] = arr;
+    }
+    if (arr.length >= MAX_WALLET_HISTORY) continue;
+    arr.push({
       ts: row.timestamp,
       slug: row.market_slug,
       side: row.side,
@@ -182,6 +202,10 @@ export function buildTradeHistoryAnalysis(records, {
       explanation: row.explanation
     });
   }
+  // Items were collected latest-first; reverse each to restore chronological order.
+  for (const key of Object.keys(historyByIndicator)) {
+    historyByIndicator[key].reverse();
+  }
 
   const indicators = Object.values(stats)
     .map(s => ({
@@ -196,10 +220,14 @@ export function buildTradeHistoryAnalysis(records, {
 
   const walletList = Object.values(wallets)
     .map(w => ({
-      ...w,
+      name: w.name,
       balance: round4(w.balance),
       invested: round4(w.invested),
-      returned: round4(w.returned)
+      returned: round4(w.returned),
+      trades: w.trades,
+      wins: w.wins,
+      losses: w.losses,
+      history: historyByIndicator[w.name] || []
     }))
     .sort((a, b) => b.balance - a.balance);
 

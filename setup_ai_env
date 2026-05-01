@@ -1,0 +1,707 @@
+#!/usr/bin/env python3
+"""Scaffold AI agent, MCP, context-mode, and Obsidian memory files.
+
+Usage:
+  ./setup_ai_env /path/to/project --project-name MyProject
+  ./setup_ai_env . --install-codex-user-hooks
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+ROOT_FILES_VERSION = "2026-05-01"
+
+
+def write_text(path: Path, text: str, force: bool = False, executable: bool = False) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and not force:
+        return f"kept {path}"
+    path.write_text(text.rstrip() + "\n", encoding="utf-8")
+    if executable:
+        path.chmod(path.stat().st_mode | 0o755)
+    return f"wrote {path}"
+
+
+def write_json(path: Path, data: object, force: bool = False) -> str:
+    return write_text(path, json.dumps(data, indent=2, ensure_ascii=False), force)
+
+
+def touch(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch(exist_ok=True)
+
+
+def context_mode_local_available(project_root: Path) -> bool:
+    return (project_root / "plugins" / "context-mode" / "start.mjs").exists()
+
+
+def context_mode_mcp(project_root: Path, mode: str) -> dict:
+    use_local = mode == "local" or (mode == "auto" and context_mode_local_available(project_root))
+    if use_local:
+        return {
+            "command": "node",
+            "args": [str(project_root / "plugins" / "context-mode" / "start.mjs")],
+            "env": {"CONTEXT_MODE_PROJECT_DIR": str(project_root)},
+        }
+    return {
+        "command": "npx",
+        "args": ["-y", "context-mode"],
+        "env": {"CONTEXT_MODE_PROJECT_DIR": str(project_root)},
+    }
+
+
+def context_mode_hook_command(project_root: Path, event: str, mode: str) -> str:
+    use_local = mode == "local" or (mode == "auto" and context_mode_local_available(project_root))
+    if use_local:
+        return f"node {project_root / 'plugins' / 'context-mode' / 'hooks' / 'codex' / (event + '.mjs')}"
+    return f"context-mode hook codex {event}"
+
+
+def codex_hooks(project_root: Path, mode: str) -> dict:
+    obsidian_hook = project_root / "scripts" / "obsidian-memory-hook.mjs"
+
+    def cmd(command: str) -> dict:
+        return {"type": "command", "command": command}
+
+    return {
+        "hooks": {
+            "PreToolUse": [{"hooks": [cmd(context_mode_hook_command(project_root, "pretooluse", mode))]}],
+            "PostToolUse": [{"hooks": [cmd(context_mode_hook_command(project_root, "posttooluse", mode))]}],
+            "SessionStart": [
+                {
+                    "hooks": [
+                        cmd(context_mode_hook_command(project_root, "sessionstart", mode)),
+                        cmd(f"node {obsidian_hook} SessionStart"),
+                    ]
+                }
+            ],
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        cmd(context_mode_hook_command(project_root, "userpromptsubmit", mode)),
+                        cmd(f"node {obsidian_hook} UserPromptSubmit"),
+                    ]
+                }
+            ],
+            "Stop": [
+                {
+                    "hooks": [
+                        cmd(context_mode_hook_command(project_root, "stop", mode)),
+                        cmd(f"node {obsidian_hook} Stop"),
+                    ]
+                }
+            ],
+        }
+    }
+
+
+def agent_instructions(project_name: str) -> str:
+    return f"""# Project Memory
+
+This project uses an Obsidian vault as durable project memory.
+
+Before non-trivial debugging or implementation, check:
+
+- `MEMORY.md`
+- `memory/obsidian-vault/Memory Index.md`
+- relevant notes in `memory/obsidian-vault/20-Decisions/`, `30-Runbooks/`, and `40-Incidents/`
+
+During work:
+
+- Keep chat/session events flowing through the Codex hooks into `memory/obsidian-vault/10-Sessions/`.
+- Promote durable decisions, incidents, and runbooks from session notes into the matching vault folders.
+- Do not store secrets, private keys, API tokens, or wallet credentials in the vault.
+
+Installed Obsidian skills become available after Codex restart:
+
+- `obsidian-markdown` for Obsidian-flavored Markdown notes.
+- `obsidian-bases` for `.base` views.
+- `json-canvas` for `.canvas` maps.
+- `obsidian-cli` when a running Obsidian instance should be controlled through its CLI.
+- `defuddle` for clean Markdown extraction from web pages.
+
+Project name: `{project_name}`.
+"""
+
+
+def memory_md(project_name: str) -> str:
+    return f"""# {project_name} Memory
+
+Durable project memory lives in `memory/obsidian-vault`.
+
+Start every non-trivial investigation by reading:
+
+- `memory/obsidian-vault/Memory Index.md`
+- `memory/obsidian-vault/20-Decisions/`
+- `memory/obsidian-vault/30-Runbooks/`
+- `memory/obsidian-vault/40-Incidents/`
+
+Never store secrets, private keys, wallet credentials, API tokens, or customer data in memory notes.
+"""
+
+
+def env_example() -> str:
+    return """# ── Project Identity ──
+PROJECT_NAME=
+CONTEXT_MODE_PROJECT_DIR=
+CONTEXT_MODE_INSIGHT_PORT=4747
+
+# ── AI Providers ──
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+
+# ── Tool Integrations ──
+GITHUB_TOKEN=
+ATLASSIAN_SITE_URL=
+ATLASSIAN_EMAIL=
+ATLASSIAN_API_TOKEN=
+LINEAR_API_KEY=
+OBSIDIAN_REST_API_KEY=
+
+# ── Polymarket / Trading Domain (only if this scaffold is used for this app family) ──
+POLY_PRIVATE_KEY=
+POLY_DRY_RUN=true
+POLY_MAX_STAKE=40
+POLY_CHAIN_ID=137
+POLY_CLOB_HOST=https://clob.polymarket.com
+POLY_SIGNATURE_TYPE=0
+POLY_FUNDER_ADDRESS=
+RELAYER_API_KEY=
+RELAYER_API_KEY_ADDRESS=
+
+# ── Runtime Tunables ──
+HTTP_TIMEOUT_MS=4000
+ENGINE_TICK_TIMEOUT_MS=8000
+ENGINE_SLOW_TICK_MS=3000
+ENGINE_WATCHDOG_MS=6000
+BINANCE_BASE_URLS=https://api.binance.com,https://api.binance.us
+BINANCE_FAILOVER_BUDGET_MS=5000
+POLYMARKET_SNAPSHOT_CLOB_BUDGET_MS=1500
+LOG_MAX_AGE_DAYS=7
+"""
+
+
+def obsidian_hook(project_name: str) -> str:
+    return f"""#!/usr/bin/env node
+import {{ appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync }} from "node:fs";
+import {{ dirname, join, resolve }} from "node:path";
+import {{ fileURLToPath }} from "node:url";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const vaultRoot = join(repoRoot, "memory", "obsidian-vault");
+const sessionsDir = join(vaultRoot, "10-Sessions");
+const inboxDir = join(vaultRoot, "00-Inbox");
+const indexPath = join(vaultRoot, "Memory Index.md");
+const projectName = "{project_name}";
+
+const event = process.argv[2] || process.env.HOOK_EVENT || "SessionStart";
+
+async function readInput() {{
+  try {{
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    const raw = Buffer.concat(chunks).toString("utf8").trim();
+    return raw ? JSON.parse(raw) : {{}};
+  }} catch {{
+    return {{}};
+  }}
+}}
+
+function sessionId(input) {{
+  return input.session_id || input.sessionId || process.env.CODEX_SESSION_ID || process.env.CODEX_THREAD_ID || "manual";
+}}
+
+function projectDir(input) {{
+  return input.cwd || input.project_dir || input.projectDir || process.env.CONTEXT_MODE_PROJECT_DIR || repoRoot;
+}}
+
+function nowIso() {{
+  return new Date().toISOString();
+}}
+
+function jsonScalar(value) {{
+  return JSON.stringify(String(value ?? ""));
+}}
+
+function monthName(date) {{
+  const months = ["Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+  return `${{String(date.getUTCMonth() + 1).padStart(2, "0")}}-${{months[date.getUTCMonth()]}}`;
+}}
+
+function cleanTitle(value) {{
+  return String(value || "Sessao iniciada")
+    .normalize("NFKD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._ -]/g, " ")
+    .replace(/\\s+/g, " ")
+    .trim()
+    .slice(0, 90) || "Sessao iniciada";
+}}
+
+function firstPrompt(input) {{
+  return input.prompt || input.userPrompt || input.message || input.text || "";
+}}
+
+function ensureVault() {{
+  for (const dir of [vaultRoot, sessionsDir, inboxDir]) mkdirSync(dir, {{ recursive: true }});
+  if (!existsSync(indexPath)) {{
+    writeFileSync(indexPath, [
+      "# Memory Index",
+      "",
+      `Vault Obsidian do projeto ${{projectName}}.`,
+      "",
+      "## Como usar",
+      "",
+      "- `10-Sessions/` recebe registros automaticos de sessoes do Codex.",
+      "- `20-Decisions/` guarda decisoes tecnicas estaveis.",
+      "- `30-Runbooks/` guarda procedimentos operacionais.",
+      "- `40-Incidents/` guarda bugs, incidentes e analises pos-correcao.",
+      "",
+      "## Sessoes recentes",
+      "",
+    ].join("\\n"), "utf8");
+  }}
+}}
+
+function walk(dir) {{
+  if (!existsSync(dir)) return [];
+  const out = [];
+  for (const name of readdirSync(dir, {{ withFileTypes: true }})) {{
+    const full = join(dir, name.name);
+    if (name.isDirectory()) out.push(...walk(full));
+    else if (name.isFile() && name.name.endsWith(".md")) out.push(full);
+  }}
+  return out;
+}}
+
+function findSession(id) {{
+  const marker = `session_id: ${{jsonScalar(id)}}`;
+  return walk(sessionsDir).find((file) => readFileSync(file, "utf8").includes(marker));
+}}
+
+function vaultRelative(file) {{
+  return file.replace(vaultRoot + "/", "").replace(/\\.md$/, "");
+}}
+
+function createSession(input) {{
+  const date = new Date();
+  const year = String(date.getUTCFullYear());
+  const folder = join(sessionsDir, year, monthName(date));
+  mkdirSync(folder, {{ recursive: true }});
+  const stamp = `${{String(date.getUTCHours()).padStart(2, "0")}}-${{String(date.getUTCMinutes()).padStart(2, "0")}}-${{String(date.getUTCSeconds()).padStart(2, "0")}}`;
+  const title = cleanTitle(firstPrompt(input) || "Sessao iniciada");
+  const file = join(folder, `${{stamp}} - ${{title}}.md`);
+  const created = nowIso();
+  writeFileSync(file, [
+    "---",
+    `title: ${{jsonScalar(title)}}`,
+    "type: chat-session",
+    "status: active",
+    `session_id: ${{jsonScalar(sessionId(input))}}`,
+    `project: ${{jsonScalar(projectName)}}`,
+    `project_dir: ${{jsonScalar(projectDir(input))}}`,
+    `created: ${{jsonScalar(created)}}`,
+    `updated: ${{jsonScalar(created)}}`,
+    `source: ${{jsonScalar(input.source || event)}}`,
+    "tags:",
+    "  - memory/session",
+    "  - codex",
+    "---",
+    "",
+    `# ${{title}}`,
+    "",
+    "Links: [[Memory Index]]",
+    "",
+    "## Timeline",
+    "",
+    `- ${{created}} SessionStart`,
+    "",
+  ].join("\\n"), "utf8");
+  appendFileSync(indexPath, `- [[${{vaultRelative(file)}}|${{title}}]] - ${{created}}\\n`);
+  return file;
+}}
+
+function sessionFile(input) {{
+  return findSession(sessionId(input)) || createSession(input);
+}}
+
+function maybeRenameFromPrompt(file, input) {{
+  const prompt = firstPrompt(input);
+  if (!prompt || !file.includes("Sessao iniciada")) return file;
+  const next = join(dirname(file), file.split("/").pop().replace("Sessao iniciada", cleanTitle(prompt)));
+  if (next !== file && !existsSync(next)) {{
+    renameSync(file, next);
+    return next;
+  }}
+  return file;
+}}
+
+function appendEvent(file, input, name) {{
+  const ts = nowIso();
+  const prompt = firstPrompt(input);
+  appendFileSync(file, `\\n- ${{ts}} ${{name}}\\n`, "utf8");
+  if (name === "UserPromptSubmit" && prompt) appendFileSync(file, `\\n### User Prompt\\n\\n${{prompt}}\\n`, "utf8");
+  const body = readFileSync(file, "utf8")
+    .replace(/status: active|status: ended/, name === "Stop" ? "status: ended" : "status: active")
+    .replace(/updated: .*/, `updated: ${{jsonScalar(ts)}}`);
+  writeFileSync(file, body, "utf8");
+}}
+
+const input = await readInput();
+ensureVault();
+let file = sessionFile(input);
+if (event === "UserPromptSubmit") file = maybeRenameFromPrompt(file, input);
+appendEvent(file, input, event);
+
+if (event === "Stop") process.stdout.write("{{}}");
+else process.stdout.write(JSON.stringify({{ hookSpecificOutput: {{ hookEventName: event }} }}));
+"""
+
+
+def vault_files(project_root: Path, project_name: str, force: bool) -> list[str]:
+    vault = project_root / "memory" / "obsidian-vault"
+    dirs = [
+        "00-Inbox",
+        "10-Sessions",
+        "20-Decisions",
+        "30-Runbooks",
+        "40-Incidents",
+        "90-Templates",
+        ".obsidian",
+    ]
+    for d in dirs:
+        (vault / d).mkdir(parents=True, exist_ok=True)
+        if not d.startswith("."):
+            touch(vault / d / ".gitkeep")
+
+    actions = []
+    actions.append(write_json(vault / ".obsidian" / "app.json", {
+        "legacyEditor": False,
+        "livePreview": True,
+        "promptDelete": False,
+        "alwaysUpdateLinks": True,
+    }, force))
+    actions.append(write_json(vault / ".obsidian" / "core-plugins.json", [
+        "file-explorer", "global-search", "switcher", "graph", "backlink", "canvas",
+        "outgoing-link", "tag-pane", "page-preview", "daily-notes", "templates",
+        "note-composer", "command-palette", "editor-status", "bookmarks", "outline",
+        "word-count", "file-recovery",
+    ], force))
+    actions.append(write_json(vault / ".obsidian" / "daily-notes.json", {
+        "format": "YYYY-MM-DD",
+        "folder": "00-Inbox",
+        "template": "90-Templates/Daily Note.md",
+    }, force))
+    actions.append(write_json(vault / ".obsidian" / "templates.json", {
+        "folder": "90-Templates",
+        "dateFormat": "YYYY-MM-DD",
+        "timeFormat": "HH:mm",
+    }, force))
+    actions.append(write_text(vault / "README.md", f"""# {project_name} Obsidian Vault
+
+Open this folder as an Obsidian vault:
+
+`memory/obsidian-vault`
+
+Codex hooks append chat/session events to:
+
+`10-Sessions/YYYY/MM-Mes/HH-mm-ss - Descricao da sessao.md`
+""", force))
+    actions.append(write_text(vault / "Memory Index.md", f"""# Memory Index
+
+Vault Obsidian do projeto {project_name}.
+
+## Como usar
+
+- `10-Sessions/` recebe registros automaticos de inicio, prompts e fim de sessao do Codex.
+- `20-Decisions/` guarda decisoes tecnicas estaveis.
+- `30-Runbooks/` guarda procedimentos operacionais.
+- `40-Incidents/` guarda bugs, incidentes e analises pos-correcao.
+
+## Sessoes
+
+Visualizacoes:
+
+- [[Sessions.base]]
+- [[Project Memory.canvas]]
+
+Runbooks:
+
+- [[30-Runbooks/Session Lifecycle|Session Lifecycle]]
+- [[30-Runbooks/Codex Hooks Memory|Codex Hooks Memory]]
+
+## Sessoes recentes
+""", force))
+    actions.append(write_text(vault / "Sessions.base", """filters:
+  and:
+    - 'type == "chat-session"'
+
+properties:
+  session_id:
+    displayName: "Session"
+  status:
+    displayName: "Status"
+  source:
+    displayName: "Source"
+  created:
+    displayName: "Created"
+  updated:
+    displayName: "Updated"
+
+views:
+  - type: table
+    name: "Chat Sessions"
+    order:
+      - file.name
+      - session_id
+      - status
+      - source
+      - created
+      - updated
+    sort:
+      - property: updated
+        direction: DESC
+""", force))
+    actions.append(write_json(vault / "Project Memory.canvas", {
+        "nodes": [
+            {"id": "index", "type": "file", "file": "Memory Index.md", "x": 0, "y": 0, "width": 420, "height": 260},
+            {"id": "sessions", "type": "file", "file": "Sessions.base", "x": 520, "y": 0, "width": 420, "height": 260},
+            {"id": "runbook", "type": "file", "file": "30-Runbooks/Session Lifecycle.md", "x": 0, "y": 360, "width": 420, "height": 260},
+        ],
+        "edges": [
+            {"id": "index-sessions", "fromNode": "index", "fromSide": "right", "toNode": "sessions", "toSide": "left"},
+            {"id": "index-runbook", "fromNode": "index", "fromSide": "bottom", "toNode": "runbook", "toSide": "top"},
+        ],
+    }, force))
+    actions.append(write_text(vault / "90-Templates" / "Chat Session.md", f"""---
+session_id:
+project: {project_name}
+created:
+tags:
+  - memory/session
+  - codex
+---
+
+# Chat Session
+
+## Timeline
+
+## Decisions
+
+## Files Changed
+
+## Follow-ups
+""", force))
+    actions.append(write_text(vault / "90-Templates" / "Daily Note.md", """---
+type: daily-note
+tags:
+  - memory/daily
+---
+
+# {{date}}
+
+## Inbox
+
+## Decisions
+
+## Follow-ups
+""", force))
+    actions.append(write_text(vault / "90-Templates" / "Decision.md", """---
+type: decision
+status: proposed
+tags:
+  - memory/decision
+---
+
+# Decision
+
+## Context
+
+## Decision
+
+## Consequences
+""", force))
+    actions.append(write_text(vault / "90-Templates" / "Incident.md", """---
+type: incident
+status: open
+tags:
+  - memory/incident
+---
+
+# Incident
+
+## Symptom
+
+## Impact
+
+## Root Cause
+
+## Fix
+
+## Follow-ups
+""", force))
+    actions.append(write_text(vault / "30-Runbooks" / "Codex Hooks Memory.md", """# Codex Hooks Memory
+
+## Files
+
+- Hook script: `scripts/obsidian-memory-hook.mjs`
+- Local Codex hook template: `.codex/hooks.json`
+- User Codex hook file: `~/.codex/hooks.json`
+- Vault: `memory/obsidian-vault`
+
+## Events Registered
+
+- `SessionStart`: creates or opens the session note.
+- `UserPromptSubmit`: records the user prompt when Codex provides text.
+- `Stop`: marks the session as ended.
+
+## Output Contract
+
+- `SessionStart` and `UserPromptSubmit` return `hookSpecificOutput`.
+- `Stop` returns `{}`.
+""", force))
+    actions.append(write_text(vault / "30-Runbooks" / "Session Lifecycle.md", """---
+title: "Session Lifecycle"
+type: runbook
+tags:
+  - memory/runbook
+  - codex-hooks
+  - obsidian
+---
+
+# Session Lifecycle
+
+## Creation
+
+Codex runs `scripts/obsidian-memory-hook.mjs` after the `context-mode` hooks.
+
+The hook receives JSON on stdin and derives the session id from:
+
+1. `session_id`
+2. `sessionId`
+3. `CODEX_SESSION_ID`
+4. `CODEX_THREAD_ID`
+5. `manual`
+
+Notes are written to:
+
+`10-Sessions/YYYY/MM-Mes/HH-mm-ss - Descricao da sessao.md`
+
+## Durable Knowledge
+
+Session notes are raw memory. Promote stable knowledge into:
+
+- `20-Decisions/`
+- `30-Runbooks/`
+- `40-Incidents/`
+""", force))
+    return actions
+
+
+def copy_context_mode(source: Path, target: Path, force: bool) -> str:
+    if not source.exists():
+        return f"skipped context-mode copy; source missing: {source}"
+    dest = target / "plugins" / "context-mode"
+    if dest.exists() and not force:
+        return f"kept {dest}"
+    if dest.exists():
+        shutil.rmtree(dest)
+    ignore = shutil.ignore_patterns("node_modules", ".git", "coverage", "dist", "build")
+    shutil.copytree(source, dest, ignore=ignore)
+    return f"copied {source} -> {dest}"
+
+
+def install_user_hooks(project_root: Path, hooks_data: dict, force: bool) -> str:
+    hooks_path = Path.home() / ".codex" / "hooks.json"
+    hooks_path.parent.mkdir(parents=True, exist_ok=True)
+    if hooks_path.exists():
+        backup = hooks_path.with_suffix(f".json.backup-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}")
+        shutil.copy2(hooks_path, backup)
+        backup_msg = f"backup {backup}; "
+    else:
+        backup_msg = ""
+    if hooks_path.exists() and not force:
+        # Installing hooks is explicit; overwrite after backup because the flag was requested.
+        pass
+    hooks_path.write_text(json.dumps(hooks_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return f"{backup_msg}installed {hooks_path} for {project_root}"
+
+
+def scaffold(args: argparse.Namespace) -> list[str]:
+    project_root = Path(args.target).expanduser().resolve()
+    project_name = args.project_name or project_root.name
+    force = bool(args.force)
+    project_root.mkdir(parents=True, exist_ok=True)
+
+    actions: list[str] = []
+    if args.copy_context_mode_from:
+        actions.append(copy_context_mode(Path(args.copy_context_mode_from).expanduser().resolve(), project_root, force))
+
+    mode = args.context_mode
+    mcp_server = context_mode_mcp(project_root, mode)
+    hooks_data = codex_hooks(project_root, mode)
+
+    actions.append(write_text(project_root / "AGENTS.md", agent_instructions(project_name), force))
+    actions.append(write_text(project_root / "MEMORY.md", memory_md(project_name), force))
+    actions.append(write_text(project_root / ".env.example", env_example(), force))
+    actions.append(write_json(project_root / ".vscode" / "settings.json", {
+        "claudeCode.allowDangerouslySkipPermissions": False,
+        "claudeCode.initialPermissionMode": "default",
+    }, force))
+    actions.append(write_json(project_root / ".mcp.json", {"mcpServers": {"context-mode": mcp_server}}, force))
+    actions.append(write_json(project_root / ".vscode" / "mcp.json", {"servers": {"context-mode": mcp_server}}, force))
+    actions.append(write_json(project_root / ".codex" / "hooks.json", hooks_data, force))
+    actions.append(write_json(project_root / ".agents" / "plugins" / "marketplace.json", {
+        "name": f"{project_name.lower()}-local",
+        "interface": {"displayName": f"{project_name} Local Plugins"},
+        "plugins": [
+            {
+                "name": "context-mode",
+                "source": {"source": "local", "path": "./plugins/context-mode"},
+                "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+                "category": "Coding",
+            }
+        ],
+    }, force))
+    actions.append(write_text(project_root / "prompts" / "system.md", f"""# {project_name} System Prompt
+
+Use `AGENTS.md` for project-specific operating rules.
+Use `memory/obsidian-vault` as durable project memory.
+Never place secrets in prompts, vault notes, or committed config.
+""", force))
+    actions.append(write_text(project_root / "scripts" / "obsidian-memory-hook.mjs", obsidian_hook(project_name), force, executable=True))
+    actions.extend(vault_files(project_root, project_name, force))
+
+    if args.install_codex_user_hooks:
+        actions.append(install_user_hooks(project_root, hooks_data, force))
+
+    return actions
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Scaffold AI/agent/MCP/Obsidian memory environment.")
+    parser.add_argument("target", nargs="?", default=".", help="Target project directory. Defaults to current directory.")
+    parser.add_argument("--project-name", help="Logical project name. Defaults to target directory name.")
+    parser.add_argument("--context-mode", choices=["auto", "local", "npx"], default="auto", help="How to render context-mode commands.")
+    parser.add_argument("--copy-context-mode-from", help="Optional source directory to vendor-copy plugins/context-mode, excluding node_modules.")
+    parser.add_argument("--install-codex-user-hooks", action="store_true", help="Write ~/.codex/hooks.json with a timestamped backup.")
+    parser.add_argument("--force", action="store_true", help="Overwrite files that already exist.")
+    parser.add_argument("--version", action="version", version=f"setup_ai_env {ROOT_FILES_VERSION}")
+    args = parser.parse_args()
+
+    actions = scaffold(args)
+    print("setup_ai_env complete")
+    for action in actions:
+        print(f"- {action}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

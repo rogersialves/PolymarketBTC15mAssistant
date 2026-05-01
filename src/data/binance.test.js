@@ -34,6 +34,7 @@ test("fetchKlines returns stale cached candles immediately while refreshing in b
     const second = await fetchKlines({ interval: "1m", limit: 1 });
     assert.equal(second[0].close, 1.5);
     assert.ok(Date.now() - startedAt < 50);
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(calls, 2);
   } finally {
     globalThis.fetch = originalFetch;

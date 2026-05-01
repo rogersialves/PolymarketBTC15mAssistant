@@ -1,0 +1,5 @@
+{
+  "format": "YYYY-MM-DD",
+  "folder": "00-Inbox",
+  "template": "90-Templates/Daily Note.md"
+}

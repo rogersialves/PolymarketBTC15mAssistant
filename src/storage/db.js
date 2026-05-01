@@ -22,10 +22,18 @@ export function getPool() {
     connectionString,
     max: Number(process.env.POSTGRES_POOL_MAX || 8),
     idleTimeoutMillis: Number(process.env.POSTGRES_IDLE_TIMEOUT_MS || 30_000),
-    // Keep connect timeout tight so analysis fallback does not stall engine tick.
-    connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECT_TIMEOUT_MS || 1_500),
-    query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || 2_000),
-    statement_timeout: Number(process.env.POSTGRES_STATEMENT_TIMEOUT_MS || 2_000),
+    // Raised from 1500ms → 5000ms. The previous 1500ms was shorter than typical
+    // event loop lag spikes (500-2000ms), causing spurious "connection timeout"
+    // errors that churned the pool and grew RSS. The application-level timeout
+    // (SIM_ANALYSIS_TIMEOUT_MS=1200ms) is the real guard; pg timeouts are just
+    // safety nets and must be above the application timeout.
+    connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECT_TIMEOUT_MS || 5_000),
+    // Raised from 2000ms → 6000ms so a query does not get killed at the pg
+    // level before the 1200ms application-level timeout can reject it cleanly.
+    // Without this, pg destroys the connection (indeterminate protocol state)
+    // which forces a reconnect and grows RSS.
+    query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || 6_000),
+    statement_timeout: Number(process.env.POSTGRES_STATEMENT_TIMEOUT_MS || 6_000),
     keepAlive: true,
     allowExitOnIdle: true
   });

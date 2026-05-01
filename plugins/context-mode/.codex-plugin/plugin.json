@@ -1,0 +1,45 @@
+{
+  "name": "context-mode",
+  "version": "1.0.103",
+  "description": "MCP server for context-saving sandbox tools, session continuity, and automatic Codex hook routing.",
+  "author": {
+    "name": "Mert Koseoglu",
+    "email": "code.bm.ksglu@gmail.com",
+    "url": "https://github.com/mksglu"
+  },
+  "homepage": "https://github.com/mksglu/context-mode#readme",
+  "repository": "https://github.com/mksglu/context-mode",
+  "license": "Elastic-2.0",
+  "keywords": [
+    "mcp",
+    "context-window",
+    "sandbox",
+    "code-execution",
+    "fts5",
+    "bm25"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Context Mode",
+    "shortDescription": "Context-saving MCP tools with Codex hooks",
+    "longDescription": "Context Mode adds sandboxed execution tools, indexed search, session continuity, and hook-based routing for Codex so large command and file outputs stay out of the conversation context.",
+    "developerName": "Mert Koseoglu",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/mksglu/context-mode",
+    "privacyPolicyURL": "https://github.com/mksglu/context-mode",
+    "termsOfServiceURL": "https://github.com/mksglu/context-mode/blob/main/LICENSE",
+    "defaultPrompt": [
+      "ctx doctor",
+      "ctx stats",
+      "Use context-mode routing for large outputs."
+    ],
+    "brandColor": "#111827",
+    "screenshots": []
+  }
+}

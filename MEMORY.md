@@ -5,6 +5,17 @@ Consulte este arquivo antes de depurar comportamentos inesperados.
 
 ---
 
+## Sessão: 30/04/2026 — Obsidian como memória do projeto
+
+- Criado vault Obsidian local em `memory/obsidian-vault`.
+- Criado hook `scripts/obsidian-memory-hook.mjs` para registrar eventos de chat.
+- Registrados hooks do Codex em `/root/.codex/hooks.json` para `SessionStart`, `UserPromptSubmit` e `Stop`.
+- O `MEMORY.md` permanece como histórico legado; novas memórias estruturadas devem ser promovidas para o vault, principalmente `20-Decisions/`, `30-Runbooks/` e `40-Incidents/`.
+- Instaladas skills Obsidian de `kepano/obsidian-skills`: `defuddle`, `json-canvas`, `obsidian-bases`, `obsidian-cli`, `obsidian-markdown`.
+- Adicionados `Sessions.base`, `Project Memory.canvas` e runbook `Session Lifecycle` para conectar sessões no vault.
+
+---
+
 ## Sessão: 26/04/2026 — Análise e Correções de Bugs
 
 ### Contexto
@@ -478,6 +489,298 @@ EVENT_LOOP_REPORT_MS=5000
 
 ---
 
+## Sessão: 29/04/2026 — Loop de estabilização RSS (Runs 26 a 30)
+
+### Contexto
+Objetivo desta sessão: executar ciclo completo "corrigir -> rodar -> analisar logs -> corrigir" para eliminar o crash por `RSS > 320MB` durante congelamentos com `loopLag` alto.
+
+---
+
+### Ações aplicadas nesta sessão
+
+1. **Fix BP (malloc)** — `scripts/start-clean.mjs`
+   - Habilitado jemalloc:
+     - `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2`
+     - `MALLOC_CONF=dirty_decay_ms:0,muzzy_decay_ms:0`
+   - Mantido `MALLOC_ARENA_MAX=1` como fallback.
+
+2. **Fix BQ (pause mais cedo)** — `src/diagnostics/memoryMonitor.js`
+   - Janela de pause/resume ajustada para reagir antes da cascata.
+
+3. **Fix BR (análise Postgres durante pause)** — `src/server.js`
+   - `computeSimAnalysis()` passou a retornar `null` quando `process._httpPaused=true`.
+   - Evita alocação pesada de objetos de análise durante janela crítica de memória.
+
+4. **Fix BS (redução de cardinalidade da análise)** — `src/storage/tradeHistoryStore.js`
+   - `listTradeHistoryForAnalysis()` limitado aos **1000** registros resolvidos mais recentes.
+   - Query passou a usar subquery `ORDER BY timestamp_ms DESC LIMIT 1000` + ordenação final ASC.
+
+5. **Fix BT (heap alvo menor)** — `scripts/start-clean.mjs`
+   - `--max-old-space-size` reduzido de 150 para **100**.
+
+6. **Fix BU (GC explícito ao pausar)** — `src/diagnostics/memoryMonitor.js`
+   - Ao ativar `httpPaused`, dispara `global.gc()` (major GC) e loga `http paused: full GC triggered`.
+
+7. **Fix BV/BW (detecção antecipada)** — `src/diagnostics/memoryMonitor.js`
+   - Threshold final desta sessão:
+     - `HTTP_PAUSE_RSS_MB=168`
+     - `HTTP_RESUME_RSS_MB=152`
+   - `MEMORY_REPORT_MS` default reduzido para **750ms** (era 2000ms).
+
+8. **Fix BX (fila de host ao pausar)** — `src/net/http.js`
+   - Em `_hostRelease()`, quando `process._httpPaused=true`, a fila por host é drenada com rejeição (`resolve(false)`) em vez de admitir próximo request.
+
+9. **Fix BY (abort global em transição de pause)** — `src/net/http.js` + `src/diagnostics/memoryMonitor.js`
+   - Adicionado canal de evento `process.emit("httpPauseChanged", <bool>)` no monitor.
+   - `http.js` passou a manter `_httpPauseController` global e compor sinal via `AbortSignal.any([...,_httpPauseController.signal])`.
+   - Efeito: requests enfileiradas/em progresso recebem abort imediato quando o pause ativa.
+
+---
+
+### Resumo dos runs desta sessão
+
+- **Run 26:** mostrou que mesmo com pause de HTTP, o processo ainda podia escalar RSS por trabalho interno; identificada pressão adicional da análise Postgres.
+- **Run 27:** após BR/BS, crash persistiu com salto rápido de RSS em janela curta.
+- **Run 28:** mesmo com BT/BU, houve subida brusca após região de threshold (detecção ainda tardia em alguns ciclos).
+- **Run 29:** baseline ficou estável por longo período (RSS ~149-156MB), mas ainda ocorreram cascatas tardias.
+- **Run 30 (log final desta sessão):**
+  - Fase estável longa em ~150MB.
+  - Pause ativado cedo em 179MB, com queda parcial para ~160MB.
+  - Nova escalada posterior mesmo com sistema em estado de pause (`Gamma ... paused`, Binance/Coinbase/Kraken pausados), chegando a 333MB e saída por limite.
+
+---
+
+### Falha que ainda persiste (estado atual)
+
+**Sintoma persistente:** ainda existe uma cascata tardia de memória/latência que eleva RSS para >320MB mesmo após bloqueio agressivo de HTTP e abort de requisições.
+
+**Assinatura observada no último log:**
+- `loopLag` sobe para faixa de ~1.4s-2.4s.
+- Sequência de major GCs com duração acumulada alta.
+- `heapTotal` cresce junto da crise (ex.: ~95MB -> ~105MB).
+- RSS escala para ~331-333MB e o monitor reinicia o processo.
+
+**Leitura técnica atual:**
+- O gargalo remanescente não é apenas "novas conexões HTTP".
+- Há componente interno de alocação/fragmentação sob freeze (trabalho do loop, buffers e crescimento de heap durante períodos de lag) que ainda consegue sustentar a escalada mesmo em modo degradado com cache.
+
+**Status:** parcialmente mitigado (estabilidade inicial muito melhor), porém **não resolvido**; ainda ocorre restart por `RSS limit` em cenários de lag prolongado.
+
+---
+
+## Sessão: 29-30/04/2026 — Fase 1 Operacional Scalp-Only
+
+### Decisão estratégica
+
+Após 5 runs (26-30 da sessão 29/04) tentando estabilizar RSS via fixes em `http.js` + `memoryMonitor.js` + `chainlink.js`, o problema persiste em cenários de loopLag prolongado. Decidido isolar o operacional crítico do robô (Scalp 5m/15m, DRY+LIVE) num servidor lean (`src/serverScalp.js`), pausando temporariamente todo o resto.
+
+### Entrypoint Fase 1
+
+- `npm run start:scalp` → `src/serverScalp.js` (lean, ~700 linhas)
+- `npm start` (server.js completo) — preservado intocado, retomado em Fase 2
+- Toggle via env: `ENTRY=scalp npm start` ou `npm start -- --entry=scalp`
+- Implementação: `scripts/start-clean.mjs` resolve `entryPath` via `--entry=scalp` flag
+
+### Pausado para Fase 2 (NÃO ESQUECER)
+
+1. **Análises de carteira**
+   - `buildTradeHistoryAnalysis`, `refreshAnalysisCache`, `computeSimAnalysis`, `analysisByMode`
+   - `listTradeHistoryRecords`, `listTradeHistoryForAnalysis`
+   - Endpoint `GET /api/analysis/:tf` retorna 503 em modo Scalp-Only
+   - WebSocket action `analyze` retorna estrutura vazia compatível
+   - Tabs DRY/SIMULATION do dashboard ficam vazias
+
+2. **Históricos complexos**
+   - Dispatch SIM de Top3 5m/15m, Full Consensus, Heiken+OBV, 5+ Agree, Consensus Edge, Delta 3m Fade — desabilitado
+   - APENAS Scalp Force registra entradas em CSV + Postgres (`runtime_events` via `persistRuntimeRow`)
+   - LIVE Scalp grava em Postgres `trade_history` via `polyTrader._saveHistory()`
+   - `backfillSimTradesFromHistory`, `sendCsvReconciliation`, `persistSimCsvTokenColumns` — não importados
+   - `minShareRejectedEntryKeys` — não criado (sem dispatch não há rejeição a contabilizar)
+   - `simPositions`, `pendingSimResolutions` — não criados
+
+3. **Sincronização de resultados**
+   - `processPendingSimResolutions` interval — desligado
+   - `polyTrader.refreshTradeResults` interval (60s) — desligado (não chamado pelo runner)
+   - `POST /api/resolve-trades` SSE endpoint — retorna 503
+   - `pendingSimResolutions` queue — não populada
+   - Resolução de outcome canônico (Polymarket settled `outcomePrices`) — Scalp resolve internamente via state machine; sync com Polymarket é Fase 2
+
+4. **Endpoints HTTP omitidos / 503**
+   - `GET /api/trade-history` — 503 (cascateava em listTradeHistoryRecords pesado)
+   - `POST /api/resolve-trades` — 503
+   - `GET /api/analysis/:tf` — 503
+   - Modais de reconciliação — sem rota
+   - **Novo**: `GET /api/scalp/wallet` — retorna estado in-memory de Scalp 5m + 15m (sem Postgres hit)
+
+5. **Helpers duplicados intencionalmente**
+   - `persistRuntimeRow`, `applyScalpTradeToWallet`, `readScalpWalletFromCsv` (versão simplificada — sem trade_history.json lookup)
+   - `createPolymarketResolver` simplificado: sem `fetchOrderBook`, sem `ensureEventPagePtb` (PTB direto de `priceToBeatFromMarketWithSource` parsing canônico)
+   - Phase 2: extrair para `src/scalp/scalpServerHelpers.js` compartilhado entre os dois servers
+
+### Invariantes a preservar
+
+- Em `serverScalp.js`: NUNCA importar `tradeHistoryAnalysis.js`, `tradeHistoryStore.listTradeHistoryRecords`, nem `simTradeHistoryBackfill.js`. Esses são as fontes primárias de carga.
+- Scalp INSERT em Postgres `runtime_events` continua via `insertRuntimeEvent` (gravação leve, ~1 row por trade fechado).
+- Scalp LIVE INSERT em Postgres `trade_history` via `polyTrader._saveHistory()` (BUY + SELL = 2 rows por par).
+- `fetchOrderBook` e `ensureEventPagePtb` NÃO devem ser chamados em modo Scalp-Only — eliminam 4-6 requests/tick.
+- `polyTrader.refreshTradeResults` NÃO é invocado pelo `startEngineRunner` em `serverScalp.js`.
+- HTTP_PAUSE_RSS_MB=168 / RESUME=152 / RSS_LIMIT=320 mantidos como rede de segurança em `memoryMonitor.js`, mas devem raramente ativar em modo Scalp-Only.
+- Os semáforos HTTP_MAX=2, HOST_MAX=1, HOST_QUEUE=1 em `net/http.js` ficam ativos. Em modo Scalp-Only a carga é tão menor que esses sistemas devem permanecer dormentes.
+
+### Arquivos criados / modificados nesta sessão
+
+| Arquivo | Ação |
+|---|---|
+| `src/serverScalp.js` | **CRIADO** — entrypoint mínimo Scalp-Only |
+| `package.json` | adicionado `npm run start:scalp` (via start-clean) e `npm run scalp` (direto) |
+| `scripts/start-clean.mjs` | aceita `--entry=scalp` ou `ENTRY=scalp` env, despacha para serverScalp.js |
+| `MEMORY.md` | esta seção adicionada |
+| `src/server.js` | **NÃO TOCADO** — preservado para Fase 2 |
+
+### Plano de retomada Fase 2
+
+Quando Scalp-Only estiver estável por 24h+ (RSS estável, zero crashes), retomar:
+
+1. **Análise de carteira** em modo lazy: compute on-demand quando aba é aberta (não em interval), com cache invalidação por mtime do trade_history. Mover `buildTradeHistoryAnalysis` para Worker thread separado.
+2. **Dispatch SIM de não-Scalp** via worker thread separado (não bloqueia tick loop). Considerar process isolation via child_process.
+3. **Sync de resultados** com Polymarket via cron job externo (`scripts/resolve-pending-trades.mjs` agendado), não via interval no event loop.
+4. **Reunificação dos helpers** Scalp em `src/scalp/scalpServerHelpers.js` compartilhado entre os dois servers (eliminar duplicação intencional da Fase 1).
+5. **Reavaliar fixes acumulados** em `http.js` (HTTP_MAX_CONCURRENT, HOST_MAX_QUEUE), `memoryMonitor.js` (HTTP_PAUSE_RSS_MB), `chainlink.js` (RPC cooldowns) — alguns podem ser desnecessários sob a carga reduzida do modo Scalp-Only e do trabalho movido para workers.
+
+### 🔴 Bug #20 — Cascade RSS persistente mesmo no Scalp-Only (corrigido 30/04/2026)
+
+**Sintoma observado:** Mesmo com Scalp-Only rodando estável a RSS=144MB por ~4 minutos, uma única conexão TLS pendurada com `clob.polymarket.com` triggava cascata:
+
+```
+21:17:08  rss=165MB  inflight[clob=1] connecting[clob=1]   ← TLS handshake abrindo
+21:17:10  rss=196MB                                         ← +31MB em 1.7s (TLS context buffer)
+21:17:10  http paused (threshold 168MB)
+21:17:10  CLOB ERR ttfb=-1 total=2323ms                     ← socket morreu
+21:17:13  rss=247MB loopLag mean=680ms                      ← cascata começa
+21:17:25  loopLag mean=1064ms
+21:17:33  loopLag mean=3223ms
+21:17:39  rss=444MB                                         ← processo morto
+```
+
+**Root cause:** Cada chamada `fetchClobPrice` aloca ~30MB de TLS context em memória nativa. Quando a clob.polymarket.com fica intermitente (latência variável 100ms-2000ms+), o socket TLS fica pendurado durante o handshake. AbortSignal cancela o JS-level mas o kernel mantém TCP buffer + TLS context por segundos depois. Múltiplos sockets nesse estado intermediário acumulam memória nativa fora do controle do GC. heap V8 fica em 30-40MB enquanto RSS escala para 444MB+.
+
+**Heap V8 estável + RSS escalando = memória nativa fora do GC.** Esta é a assinatura: jemalloc com `dirty_decay_ms:0` deveria liberar, mas o socket ainda em FIN_WAIT/CLOSE_WAIT mantém as páginas alocadas pelo libuv.
+
+**Correção aplicada:** Tirar TODAS as chamadas CLOB do path do tick. Background fetcher fire-and-forget com:
+- `_clobCache` — Map de tokenId → { price, fetchedAt }, TTL de 5s
+- `_maybeRefreshClobPrice(tokenId)` — fire-and-forget, NUNCA awaitada pelo tick
+- Throttle: max 1 fetch por tokenId a cada `POLYMARKET_CLOB_FETCH_INTERVAL_MS` (3s default)
+- Dedupe: `_clobInFlight` Set previne 2 fetches concorrentes do mesmo tokenId
+- Circuit breaker: 3 falhas consecutivas → suspende fetches por 60s
+- Timeout agressivo: 1500ms hardcoded
+- **Fallback automático para `gammaPrices`** quando CLOB indisponível
+
+**Arquivo:** `src/serverScalp.js` — função `fetchSnapshot` reescrita:
+- Snapshot agora SÓ chama `resolve()` (Gamma /events, cacheado por `polymarketResolveCacheMs`)
+- CLOB prices vêm do cache em background, lidos via `_getClobPrice(tokenId)` (sync, instantâneo)
+- Se CLOB cache stale ou breaker aberto, usa `gammaPrices` (do `outcomePrices` do Gamma)
+- `priceFresh` é true se CLOB OU gamma estiver disponível
+
+**Invariantes a preservar:**
+- NUNCA awaitar `_maybeRefreshClobPrice` no path do tick — sempre fire-and-forget
+- `_clobCache` é shared entre engines 5m e 15m (Set/Map module-level)
+- Quando breaker abrir, `priceSource` será `"gamma"` no payload — frontend deve aceitar
+- gammaPrices vêm de `market.outcomePrices` (atualizado a cada Gamma fetch, ~15s)
+- Scalp continua operando porque `polymarketPricesFresh = true` quando finalUp/finalDown não são null
+
+**Toggles via env:**
+```
+POLYMARKET_CLOB_CACHE_TTL_MS=5000
+POLYMARKET_CLOB_FETCH_INTERVAL_MS=3000
+POLYMARKET_CLOB_FETCH_TIMEOUT_MS=1500
+```
+
+---
+
+### 🔴 Bug #21 — Binance `@trade` stream causava cascade RSS no serverScalp (corrigido 30/04/2026)
+
+**Sintoma observado:** Mesmo após Bug #20 (CLOB fora do tick path), a cascata RSS persistia. Pattern:
+- RSS estável a 144MB por 4+ minutos
+- Subiu gradualmente 144 → 165 → 175MB
+- HTTP pause em 168MB não conteve — sockets já abertos continuaram
+- Cascada: 175 → 219 → 269 → 309 → 540MB → processo morto pelo limit
+
+Mesmo padrão acontecia EM TODAS as variantes:
+- Com CLOB circuit breaker aberto (cascade ainda escala)
+- Com Polymarket WS desabilitado (cascade ainda escala)
+- Heap V8 sempre estável em 30-50MB → leak é em **memória nativa fora do GC**
+
+**Diagnóstico via isolamento (3 rounds de teste):**
+
+| Round | Config | Resultado |
+|---|---|---|
+| 1 | TODOS WS desabilitados (HTTP-only) | RSS estável 144MB por 4min ✅ |
+| 2 | Só Polymarket WS off (Binance + Chainlink ON) | Cascade em 90s (175→309MB) ❌ |
+| 3 | Só Binance WS off (Polymarket + Chainlink ON) | RSS estável 144-147MB por 4min ✅ |
+
+**Conclusão**: `startBinanceTradeStream` é o culpado.
+
+**Root cause:** `@trade` stream do Binance envia CADA execução individual. BTCUSDT recebe 10-50 mensagens/seg em horário ativo. Cada mensagem:
+1. Aloca Buffer nativo (libuv, fora do GC do V8)
+2. `buf.toString()` cria string nova
+3. `JSON.parse(...)` aloca object descartado imediatamente
+4. Buffer pool nativo acumula páginas que jemalloc tem dificuldade de liberar quando event loop fica ocupado
+
+Sob alta frequência sustentada (~30 msgs/seg × 24h = 2.5M mensagens/dia), o **Buffer pool nativo** acumula páginas de memória que **NÃO aparecem no heap V8**. Heap snapshot capturado em rss=236MB confirmou: snapshot tinha 47MB total, mas RSS estava 5x maior — leak EXTERNO ao V8.
+
+**Tentativa #1 (FALHOU):** `src/data/binanceWs.js` — trocou `@trade` por `@bookTicker` + throttle 200ms. Resultado: cascade ainda aconteceu (RSS 222→472MB em ~80s). bookTicker reduz frequência mas a conexão TCP/TLS para `stream.binance.com:9443` continua alocando. Hipótese: reconnect loop ou TLS context renegotiation acumula buffers nativos independentemente da frequência de mensagens.
+
+**Correção definitiva aplicada** (`src/serverScalp.js`):
+
+**Binance WS DESABILITADO por DEFAULT.** O tick loop usa `fetchLastPrice` HTTP (1 req/s para `api.binance.us`) — Round 3 do diagnóstico provou que SEM Binance WS o RSS estabiliza em 144-147MB indefinidamente.
+
+```js
+const binanceStream = process.env.SCALP_BINANCE_WS === "1"
+  ? startBinanceTradeStream({ symbol: CONFIG.symbol })  // opt-in, NÃO recomendado
+  : noopStream;  // default: HTTP fetchLastPrice por tick
+```
+
+Tradeoff aceito: latência de ~1s no preço Binance (vs real-time WS). Para Scalp Force isso é aceitável porque:
+- Já usa `polymarketLiveStream` (WS live) como fonte primária
+- `chainlinkStream` (WS+heartbeat) como secundária
+- Binance é apenas um de três oracles (Binance/Coinbase/Kraken via getExchangeTickers)
+- 1s latência não impacta decisões Scalp que operam em janelas de 5m/15m
+
+**Toggles via env (debug):**
+```
+SCALP_DISABLE_BINANCE_WS=1   # desliga Binance WS (usa fetchLastPrice HTTP no tick)
+SCALP_DISABLE_POLY_WS=1      # desliga Polymarket WS
+SCALP_DISABLE_CHAINLINK_WS=1 # desliga Chainlink WS
+HEAP_SNAPSHOT_ON_RSS=1       # dump heap snapshot quando RSS atinge HEAP_SNAPSHOT_RSS_MB
+HEAP_SNAPSHOT_RSS_MB=220
+BINANCE_WS_MIN_UPDATE_MS=200  # throttle defensivo
+```
+
+**Lição aprendida:**
+- Heap V8 estável + RSS escalando = leak em **memória nativa**. GC não vê.
+- WebSocket high-frequency streams são o suspeito principal nesse padrão.
+- Heap snapshots NÃO mostram o leak quando ele é em Buffer pool nativo / TLS context / sockets.
+- Sempre verificar a frequência de subscription real (`@trade` vs `@bookTicker` vs `@kline`).
+
+**Invariante a preservar:**
+- NUNCA assinar streams Binance `@trade` ou similares de alta frequência sem throttle/aggregation
+- Se precisar de tick-level data, usar `@aggTrade` (agregado) ou `@kline_1s`
+- Para preço atual, `@bookTicker` é suficiente para Scalp (mid de bid/ask)
+
+---
+
+### Verificação esperada
+
+Após `npm run start:scalp` por 5+ minutos:
+- `[mem] rss < 200MB` estável (vs 320MB+ no modo completo)
+- `[loopLag] max < 200ms` (vs ~6000ms na cascade)
+- `[gc] major` raro (<3 por janela de 5s)
+- Zero `loop_stalled`
+- Cards Scalp Force 5m + 15m com PTB, status, indicadores populados
+- Indicadores TA Predict, RSI, MACD, etc. com valores numéricos reais
+
+---
+
 ## Melhorias Pendentes (ainda não aplicadas)
 
 ### 🟡 Melhoria #9 — `resolve-pending-trades.mjs` sem timeout no `fetch`
@@ -590,3 +893,50 @@ Antes de sobrescrever `trade_history.json`, o sistema cria `trade_history.backup
 
 ### Scalp Force isolado
 O Scalp Force tem seu próprio state machine (`scalpRuntime`) completamente separado de `simPositions`. Nunca inserir lógica de Scalp no loop `SIM_INDICATORS` — eles têm fluxos de deduplicação e dispatch diferentes.
+
+## Sessão: 01/05/2026 — Travamento pós-minutos: zombie sockets HTTP
+
+### 🔴 Bug #22 — `fetchWithTimeout` liberava semáforos antes do socket morrer
+
+**Contexto:** A ação anterior tratou o Binance WS como causa definitiva e desabilitou `startBinanceTradeStream` por default. Isso reduziu a pressão, mas não resolveu o travamento tardio: ainda havia assinatura de RSS >320MB, loopLag alto e major GCs com heap V8 moderado.
+
+**Root cause real remanescente:** `src/net/http.js` usava `Promise.race` dentro de `fetchWithTimeout`. Quando o timeout vencia, o wrapper retornava erro e executava `finally`, liberando os semáforos global/por-host enquanto o `fetch()` real ainda podia estar vivo em background. Resultado: vaga liberada falsa → nova conexão entra → socket/TLS antigo segue segurando memória nativa → cascade RSS.
+
+**Bug adicional no mesmo ponto:** `httpPauseChanged` entrava no `queueSignal`, mas não no `signal` passado ao `fetch()` ativo. O pause global bloqueava novas requisições/fila, mas não abortava requests já em voo.
+
+**Correção aplicada:**
+- `src/net/http.js`: removido `Promise.race`; agora `fetchWithTimeout` espera o `fetch()` abortável resolver/rejeitar antes de liberar semáforos.
+- `src/net/http.js`: `AbortSignal` ativo agora combina deadline, signal externo e `_httpPauseController.signal`.
+- `src/net/http.test.js`: testes cobrindo timeout abortando fetch ativo e pause global abortando fetch ativo.
+- `src/data/binance.test.js`: asserção de refresh em background ajustada para aguardar o próximo tick.
+- `package.json`: `npm test` serializado com `--test-concurrency=1`, porque a suíte usa mocks globais de `fetch`.
+
+**Validação:**
+- `npm test`: 9/9 passou.
+- Runtime `npm run start:scalp`: processo `src/serverScalp.js` rodou por vários minutos.
+- RSS observado estável em ~141-149MB; heap ~31-39/70-73MB; major GC reduziu RSS em vez de iniciar cascade.
+- `httpDebug`: `slow=0 err=0`; sem `loop_stalled`, sem alertas RSS.
+
+**Nota durável:** ver [[40-Incidents/2026-05-01-http-timeout-zombie-sockets|HTTP timeout zombie sockets]] no vault Obsidian.
+
+### 🔴 Bug #23 — `npm start` ainda subia `src/server.js` completo
+
+**Sintoma:** `npm run start:scalp` validava estabilidade, mas `npm run start` ainda reproduzia a cascata. Log do usuário mostrou:
+- `Entrypoint: src/server.js`
+- RSS 176MB → pause HTTP → 225MB → 253MB → 291MB → 363MB → 420MB
+- `loopLag` p99 até ~2739ms
+- `RSS 420MB > limit 320MB — exiting for restart`
+
+**Root cause:** A decisão Fase 1 criou `src/serverScalp.js` para isolar só Scalp e pausar o resto, mas `scripts/start-clean.mjs` mantinha `src/server.js` como default. Ou seja, o comando operacional natural (`npm start`) reativava o servidor completo legado e invalidava a validação feita em `npm run start:scalp`.
+
+**Correção aplicada:**
+- `scripts/start-clean.mjs`: Scalp-Only (`src/serverScalp.js`) virou default.
+- `src/server.js` completo agora é opt-in explícito por `--entry=full`, `ENTRY=full`, `ENTRY=server`, `ENTRY=legacy` ou `ENTRY=web`.
+- `package.json`: adicionado `start:full`; `web` passa por `start-clean --entry=full`.
+
+**Validação:**
+- `npm test`: 9/9 passou.
+- `npm run start` agora mostra `Entrypoint: src/serverScalp.js`.
+- Startup observado: RSS 126MB → 138MB, `httpDebug req=16 slow=0 err=0`, sem cascade inicial.
+
+**Nota durável:** ver [[40-Incidents/2026-05-01-npm-start-full-server-cascade|npm start full server cascade]] no vault Obsidian.

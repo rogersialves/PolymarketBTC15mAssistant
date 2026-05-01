@@ -5,12 +5,15 @@
   "private": true,
   "scripts": {
     "start": "node scripts/start-clean.mjs",
-    "web": "node src/server.js",
+    "start:scalp": "node scripts/start-clean.mjs --entry=scalp",
+    "start:full": "node scripts/start-clean.mjs --entry=full",
+    "web": "node scripts/start-clean.mjs --entry=full",
+    "scalp": "node src/serverScalp.js",
     "cli": "node src/index.js",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:import-trade-history": "node scripts/import-trade-history.mjs",
     "db:check": "node scripts/db-check.mjs",
-    "test": "node --test \"src/**/*.test.js\"",
+    "test": "node --test --test-concurrency=1 \"src/**/*.test.js\"",
     "test:scalp-force": "node scripts/scalp-force-smoke.mjs"
   },
   "dependencies": {

@@ -1,0 +1,75 @@
+version: 1
+source:
+  extracted_at: "2026-05-01"
+  active_entrypoint: "src/serverScalp.js"
+  engine: "src/engines/scalpForce.js"
+  runtime_override: "logs/trading_config.runtime.json"
+
+execution:
+  order_type: "GTC"
+  slippage_control: "limit_price_only"
+  cancel_partial_orders: false
+  require_fresh_polymarket_current_price: true
+  require_fresh_polymarket_contract_prices: true
+
+signals_contract:
+  scalp_force_5m:
+    required:
+      - "Heiken+OBV"
+      - "5+ Agree"
+  scalp_force_15m:
+    required:
+      - "Heiken+OBV"
+      - "5+ Agree"
+      - "Delta 3m"
+
+strategies:
+  scalp_force_5m:
+    label: "Scalp Force 5m"
+    timeframe_minutes: 5
+    stake_usd: 5
+    entry_min_pct: 51
+    entry_max_pct: 55
+    take_profit_pct: 75
+    min_exit_pct: 58
+    tp_exit_mode: "trail"
+    tp_trail_cents: 2
+    tp_force_exit_enabled: true
+    tp_force_fail_ticks: 2
+    trailing_arming_cents: 1
+    trailing_cushion_cents: 3
+    decay_stop_cushion_usd: 30
+    hard_stop_cushion_cents: 15
+    hard_stop_grace_sec: 20
+    max_entries_per_candle: 5
+    entry_open_window_sec: 300
+    max_hold_sec: 300
+    min_shares_floor: 5
+    max_effective_stake_usd: 10
+    enabled: true
+    live_mode: false
+
+  scalp_force_15m:
+    label: "Scalp Force 15m"
+    timeframe_minutes: 15
+    stake_usd: 5
+    entry_min_pct: 51
+    entry_max_pct: 55
+    take_profit_pct: 75
+    min_exit_pct: 58
+    tp_exit_mode: "trail"
+    tp_trail_cents: 2
+    tp_force_exit_enabled: true
+    tp_force_fail_ticks: 2
+    trailing_arming_cents: 3
+    trailing_cushion_cents: 5
+    decay_stop_cushion_usd: 30
+    hard_stop_cushion_cents: 15
+    hard_stop_grace_sec: 20
+    max_entries_per_candle: 5
+    entry_open_window_sec: 900
+    max_hold_sec: 900
+    min_shares_floor: 5
+    max_effective_stake_usd: 10
+    enabled: true
+    live_mode: false

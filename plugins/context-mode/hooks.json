@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /opt/PolymarketBTC15mAssistant/plugins/context-mode/hooks/codex/pretooluse.mjs"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /opt/PolymarketBTC15mAssistant/plugins/context-mode/hooks/codex/posttooluse.mjs"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /opt/PolymarketBTC15mAssistant/plugins/context-mode/hooks/codex/sessionstart.mjs"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /opt/PolymarketBTC15mAssistant/plugins/context-mode/hooks/codex/userpromptsubmit.mjs"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /opt/PolymarketBTC15mAssistant/plugins/context-mode/hooks/codex/stop.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "context-mode": {
+      "command": "node",
+      "args": [
+        "/opt/PolymarketBTC15mAssistant/plugins/context-mode/start.mjs"
+      ]
+    }
+  }
+}

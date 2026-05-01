@@ -118,11 +118,20 @@ export async function upsertTradeHistoryRecords(records = []) {
   if (!Array.isArray(records) || records.length === 0) return { upserted: 0 };
   await ensureTradeHistorySchema();
 
+  // Deduplicate by dedupe_key before touching Postgres.
+  // PostgreSQL's ON CONFLICT DO UPDATE cannot affect the same row twice in
+  // a single statement — if two records in the same UNNEST batch share a
+  // dedupe_key it throws "ON CONFLICT DO UPDATE command cannot affect row a
+  // second time". Keep the last occurrence (most-recent state wins).
+  const seen = new Map();
+  for (const rec of records) seen.set(tradeHistoryDedupeKey(rec), rec);
+  const deduped = Array.from(seen.values());
+
   const CHUNK = 200;
   let upserted = 0;
 
-  for (let i = 0; i < records.length; i += CHUNK) {
-    const chunk = records.slice(i, i + CHUNK);
+  for (let i = 0; i < deduped.length; i += CHUNK) {
+    const chunk = deduped.slice(i, i + CHUNK);
     const rows = chunk.map(buildTradeHistoryDbRow);
 
     const dedupeKeys   = rows.map(r => r.dedupe_key);
@@ -187,6 +196,10 @@ export async function upsertTradeHistoryRecords(records = []) {
     upserted += chunk.length;
   }
 
+  // FIX U: Notify analysis cache that new data was persisted — it must re-fetch
+  // on next call even if TTL hasn't expired yet.
+  if (upserted > 0) _analysisVersion++;
+
   return { upserted };
 }
 
@@ -205,6 +218,106 @@ export async function listTradeHistoryRecords({ since = 0, limit = null } = {}) 
   }
   const result = await query(sql, params);
   return result.rows.map(dbRowToTradeHistoryRecord);
+}
+
+// ── Lightweight record for in-engine analysis ─────────────────────────────
+// Excludes the `raw` JSONB column (which is the full trade record serialised
+// verbatim, typically 1-3 KB each) and returns plain JS objects with only
+// the columns that buildTradeHistoryAnalysis actually uses.
+// With 2845 rows this saves 3-8 MB of data transfer + avoids spreading
+// thousands of objects on the V8 heap, eliminating the major-GC cascade.
+
+function lightDbRowToRecord(row) {
+  const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+  return {
+    timestamp: Number(row.timestamp_ms),
+    side: row.side ?? null,
+    price: row.price !== null && row.price !== undefined ? Number(row.price) : null,
+    sizeUsd: row.size_usd !== null && row.size_usd !== undefined ? Number(row.size_usd) : null,
+    shares: row.shares !== null && row.shares !== undefined ? Number(row.shares) : null,
+    tokenId: row.token_id ?? null,
+    orderId: row.order_id ?? null,
+    status: row.status ?? null,
+    executionStatus: row.execution_status ?? null,
+    dryRun: row.dry_run ?? null,
+    resolved: row.resolved ?? null,
+    marketClosed: row.market_closed ?? null,
+    marketResolved: row.market_resolved ?? null,
+    won: row.won ?? null,
+    pnl: row.pnl !== null && row.pnl !== undefined ? Number(row.pnl) : null,
+    metadata
+  };
+}
+
+// Shared across both engines (5m and 15m). Both engines call this every
+// ANALYSIS_REFRESH_MS (15s) simultaneously — without coordination they
+// would fire 2 concurrent SELECT queries. The shared promise ensures only
+// ONE query is in flight at a time and both engines receive the same result.
+//
+// FIX U: Version-based cache invalidation — only re-query when a new trade
+// was upserted (incrementing _analysisVersion). Safety net: force re-fetch
+// if cache is older than ANALYSIS_CACHE_MAX_TTL_MS regardless of version.
+// SQL filter: only fetch rows usable by isAnalyzableTrade (resolved BUY wins/losses).
+let _analysisVersion = 0;            // incremented by upsertTradeHistoryRecords
+let _analysisCache = null;           // { records, version, fetchedAt }
+let _analysisInFlight = null;
+const ANALYSIS_CACHE_MAX_TTL_MS = 5 * 60_000;  // safety: force refresh every 5 min
+
+export async function listTradeHistoryForAnalysis() {
+  await ensureTradeHistorySchema();
+
+  // Fast path: return cached records if nothing was upserted since last fetch.
+  // Safety net: expire after ANALYSIS_CACHE_MAX_TTL_MS even without new upserts.
+  if (_analysisCache) {
+    const ageMs = Date.now() - _analysisCache.fetchedAt;
+    if (_analysisCache.version === _analysisVersion && ageMs < ANALYSIS_CACHE_MAX_TTL_MS) {
+      return _analysisCache.records;
+    }
+  }
+  if (_analysisInFlight) return _analysisInFlight;
+
+  _analysisInFlight = (async () => {
+    const versionAtStart = _analysisVersion;
+    try {
+      // FIX U: Filter to only resolved BUY trades with a definitive outcome.
+      // isAnalyzableTrade() requires resolved=true, market_resolved=true, side='BUY',
+      // typeof won==='boolean'. Filtering here avoids transmitting or allocating
+      // unresolvable records (pending/cancelled/unresolved trades).
+      // Uses trade_history_resolved_idx (resolved, market_resolved) for efficiency.
+      //
+      // FIX BS: LIMIT 1000 most recent — full history (1915+ rows) costs ~28MB RSS
+      // per engine per analysis call. Limiting to the most recent 1000 resolved
+      // trades reduces allocation by ~50% while keeping enough history for
+      // statistically significant indicator accuracy (1000 resolved trades = months
+      // of history). Subquery orders DESC to get MOST RECENT 1000, outer ORDER BY
+      // restores ASC for buildTradeHistoryAnalysis which expects chronological order.
+      const result = await query(
+        `SELECT timestamp_ms, side, price, size_usd, shares, token_id, order_id,
+                status, execution_status, dry_run, resolved, market_closed,
+                market_resolved, won, pnl, metadata
+         FROM (
+           SELECT timestamp_ms, side, price, size_usd, shares, token_id, order_id,
+                  status, execution_status, dry_run, resolved, market_closed,
+                  market_resolved, won, pnl, metadata
+           FROM trade_history
+           WHERE resolved = true
+             AND market_resolved = true
+             AND side = 'BUY'
+             AND won IS NOT NULL
+           ORDER BY timestamp_ms DESC
+           LIMIT 1000
+         ) recent
+         ORDER BY timestamp_ms ASC`
+      );
+      const records = result.rows.map(lightDbRowToRecord);
+      _analysisCache = { records, version: versionAtStart, fetchedAt: Date.now() };
+      return records;
+    } finally {
+      _analysisInFlight = null;
+    }
+  })();
+
+  return _analysisInFlight;
 }
 
 export async function countTradeHistoryRecords() {

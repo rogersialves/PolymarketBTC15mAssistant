@@ -57,20 +57,43 @@ function findPriceToBeatInNextData(node, slug) {
   return null;
 }
 
-async function fetchEventPageNextDataPriceToBeat(slug) {
+// Read only the first maxBytes of the HTML body, stopping early once the
+// _buildManifest.js path is found (always in <head>, typically <50KB).
+// Avoids loading the full 2-5MB polymarket.com page into a V8 string, which
+// causes major GC events (100-400ms) and cascading RSS growth.
+async function readHtmlHead(res, maxBytes = 131072) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: false });
+  const pattern = /\/_next\/static\/([^/]+)\/_buildManifest\.js/i;
+  let html = "";
+  try {
+    while (html.length < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      html += decoder.decode(value, { stream: true });
+      if (pattern.test(html)) break; // found it — stop reading the body
+    }
+  } finally {
+    reader.cancel().catch(() => {}); // release the socket for remaining bytes
+  }
+  return html;
+}
+
+async function fetchEventPageNextDataPriceToBeat(slug, { signal } = {}) {
   const htmlUrl = `https://polymarket.com/event/${encodeURIComponent(slug)}`;
   const htmlRes = await fetchWithTimeout(htmlUrl, {
     headers: {
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
       "accept-language": "en-US,en;q=0.9"
     }
-  }, { label: `Polymarket event shell ${slug}` });
+  }, { label: `Polymarket event shell ${slug}`, signal });
 
   if (!htmlRes.ok) {
     throw new Error(`Polymarket event shell error: ${htmlRes.status}`);
   }
 
-  const html = await htmlRes.text();
+  // Read only the head of the HTML (up to 128KB) instead of the full 2-5MB body.
+  const html = await readHtmlHead(htmlRes);
   const buildIdMatch = html.match(/\/_next\/static\/([^/]+)\/_buildManifest\.js/i);
   if (!buildIdMatch?.[1]) return { html, price: null };
 
@@ -81,7 +104,7 @@ async function fetchEventPageNextDataPriceToBeat(slug) {
       "accept": "application/json,text/plain,*/*",
       "accept-language": "en-US,en;q=0.9"
     }
-  }, { label: `Polymarket next data ${slug}` });
+  }, { label: `Polymarket next data ${slug}`, signal });
 
   if (!jsonRes.ok) {
     throw new Error(`Polymarket next data error: ${jsonRes.status}`);
@@ -95,24 +118,38 @@ export function getCachedEventPagePtb(slug) {
   return EVENT_PAGE_PTB_CACHE.get(slug)?.price ?? null;
 }
 
-export async function fetchEventPagePriceToBeat(slug) {
-  const { html, price } = await fetchEventPageNextDataPriceToBeat(slug);
+export async function fetchEventPagePriceToBeat(slug, { signal } = {}) {
+  const { html, price } = await fetchEventPageNextDataPriceToBeat(slug, { signal });
   if (price !== null) return price;
   return extractPriceToBeatFromHtml(html);
 }
 
-export async function ensureEventPagePtb(slug) {
+export async function ensureEventPagePtb(slug, { signal } = {}) {
   if (!slug) return null;
-  if (EVENT_PAGE_PTB_CACHE.has(slug)) return EVENT_PAGE_PTB_CACHE.get(slug).price;
+
+  const cached = EVENT_PAGE_PTB_CACHE.get(slug);
+  if (cached !== undefined) {
+    // Successful fetch — valid for the lifetime of this slug (PTB never changes)
+    if (cached.price !== null) return cached.price;
+    // Failed fetch — back off for 5 min before retrying. polymarket.com has been
+    // returning err=20 (connection refused) consistently; retrying at 60s adds
+    // unnecessary in-flight connections that survive into degraded loop states.
+    if (Date.now() - cached.fetchedAt < 5 * 60_000) return null;
+    EVENT_PAGE_PTB_CACHE.delete(slug);
+  }
+
   if (EVENT_PAGE_PTB_IN_FLIGHT.has(slug)) return null;
 
   EVENT_PAGE_PTB_IN_FLIGHT.add(slug);
   try {
-    const price = await fetchEventPagePriceToBeat(slug);
-    if (price !== null) {
-      EVENT_PAGE_PTB_CACHE.set(slug, { price, fetchedAt: Date.now() });
-    }
+    const price = await fetchEventPagePriceToBeat(slug, { signal });
+    // Cache both successes and failures. Failures get a 60s cooldown
+    // (checked above) so we don't retry on every tick cycle.
+    EVENT_PAGE_PTB_CACHE.set(slug, { price, fetchedAt: Date.now() });
     return price;
+  } catch (err) {
+    EVENT_PAGE_PTB_CACHE.set(slug, { price: null, fetchedAt: Date.now() });
+    throw err;
   } finally {
     EVENT_PAGE_PTB_IN_FLIGHT.delete(slug);
   }
@@ -158,7 +195,13 @@ export async function fetchLiveEventsBySeriesId({ seriesId, limit = 20 }) {
   url.searchParams.set("closed", "false");
   url.searchParams.set("limit", String(limit));
 
-  const res = await fetchWithTimeout(url, {}, { label: "Gamma events by series" });
+  // FIX AN: Gamma timeout was 4000ms, reduced to 2000ms (Run 17 motivation).
+  // FIX AY: Raised back to 3500ms. The fetchWithTimeout deadline starts BEFORE
+  // the semaphore queue wait (Fix AO). Run 18 showed the 15m Gamma request spent
+  // ~1019ms waiting in the semaphore queue, leaving only 981ms for actual HTTP —
+  // causing immediate timeout. 3500ms allows up to 1500ms queue wait + 2000ms
+  // actual HTTP time, matching observed Gamma response times.
+  const res = await fetchWithTimeout(url, {}, { label: "Gamma events by series", timeoutMs: 3_500 });
   if (!res.ok) {
     throw new Error(`Gamma events(series_id) error: ${res.status} ${await res.text()}`);
   }
@@ -254,12 +297,12 @@ export function filterBtcUpDown15mMarkets(markets, { seriesSlug, slugPrefix } = 
   });
 }
 
-export async function fetchClobPrice({ tokenId, side }) {
+export async function fetchClobPrice({ tokenId, side, signal }) {
   const url = new URL("/price", CONFIG.clobBaseUrl);
   url.searchParams.set("token_id", tokenId);
   url.searchParams.set("side", side);
 
-  const res = await fetchWithTimeout(url, {}, { label: "CLOB price" });
+  const res = await fetchWithTimeout(url, {}, { label: "CLOB price", signal });
   if (!res.ok) {
     throw new Error(`CLOB price error: ${res.status} ${await res.text()}`);
   }
@@ -267,11 +310,11 @@ export async function fetchClobPrice({ tokenId, side }) {
   return toNumber(data.price);
 }
 
-export async function fetchOrderBook({ tokenId }) {
+export async function fetchOrderBook({ tokenId, signal }) {
   const url = new URL("/book", CONFIG.clobBaseUrl);
   url.searchParams.set("token_id", tokenId);
 
-  const res = await fetchWithTimeout(url, {}, { label: "CLOB order book" });
+  const res = await fetchWithTimeout(url, {}, { label: "CLOB order book", signal });
   if (!res.ok) {
     throw new Error(`CLOB book error: ${res.status} ${await res.text()}`);
   }

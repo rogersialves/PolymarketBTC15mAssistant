@@ -1,0 +1,286 @@
+/**
+ * adapters/detect — Auto-detect which platform is running.
+ *
+ * Detection priority:
+ *   1. Environment variables (high confidence)
+ *   2. Config directory existence (medium confidence)
+ *   3. Fallback to Claude Code (low confidence — most common)
+ *
+ * Verified env vars per platform (from source code audit):
+ *   - Claude Code:    CLAUDE_PROJECT_DIR, CLAUDE_SESSION_ID | ~/.claude/
+ *   - Gemini CLI:     GEMINI_PROJECT_DIR (hooks), GEMINI_CLI (MCP) | ~/.gemini/
+ *   - KiloCode:       KILO, KILO_PID | ~/.config/kilo/
+ *   - OpenCode:       OPENCODE, OPENCODE_PID | ~/.config/opencode/
+ *   - OpenClaw:       OPENCLAW_HOME, OPENCLAW_CLI | ~/.openclaw/
+ *   - Codex CLI:      CODEX_CI, CODEX_THREAD_ID | ~/.codex/
+ *   - Cursor:         CURSOR_TRACE_ID (MCP), CURSOR_CLI (terminal) | ~/.cursor/
+ *   - VS Code Copilot: VSCODE_PID, VSCODE_CWD | ~/.vscode/
+ *   - JetBrains Copilot: IDEA_INITIAL_DIRECTORY, IDEA_HOME, JETBRAINS_CLIENT_ID | ~/.config/JetBrains/
+ */
+
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { homedir } from "node:os";
+
+import type { PlatformId, DetectionSignal, HookAdapter } from "./types.js";
+import { CLIENT_NAME_TO_PLATFORM } from "./client-map.js";
+
+/**
+ * High-confidence env vars per platform, checked in priority order.
+ * Single source of truth — consumed by detectPlatform() below and by
+ * tests that need to clear platform-related env vars deterministically.
+ */
+export const PLATFORM_ENV_VARS = [
+  ["claude-code", ["CLAUDE_PROJECT_DIR", "CLAUDE_SESSION_ID"]],
+  ["gemini-cli", ["GEMINI_PROJECT_DIR", "GEMINI_CLI"]],
+  ["openclaw", ["OPENCLAW_HOME", "OPENCLAW_CLI"]],
+  ["kilo", ["KILO", "KILO_PID"]],
+  ["opencode", ["OPENCODE", "OPENCODE_PID"]],
+  ["codex", ["CODEX_CI", "CODEX_THREAD_ID"]],
+  ["cursor", ["CURSOR_TRACE_ID", "CURSOR_CLI"]],
+  ["vscode-copilot", ["VSCODE_PID", "VSCODE_CWD"]],
+  ["jetbrains-copilot", ["IDEA_INITIAL_DIRECTORY", "IDEA_HOME", "JETBRAINS_CLIENT_ID"]],
+  ["qwen-code", ["QWEN_PROJECT_DIR", "QWEN_SESSION_ID"]],
+] as const satisfies ReadonlyArray<readonly [PlatformId, readonly string[]]>;
+
+/**
+ * Detect the current platform by checking env vars and config dirs.
+ *
+ * @param clientInfo - Optional MCP clientInfo from initialize handshake.
+ *   When provided, takes highest priority (zero-config detection).
+ */
+export function detectPlatform(clientInfo?: { name: string; version?: string }): DetectionSignal {
+  // ── Highest priority: MCP clientInfo ──────────────────
+  if (clientInfo?.name) {
+    const platform = CLIENT_NAME_TO_PLATFORM[clientInfo.name];
+    if (platform) {
+      return {
+        platform,
+        confidence: "high",
+        reason: `MCP clientInfo.name="${clientInfo.name}"`,
+      };
+    }
+    // Qwen Code uses dynamic client names: qwen-cli-mcp-client-<serverName>
+    if (clientInfo.name.startsWith("qwen-cli-mcp-client")) {
+      return {
+        platform: "qwen-code",
+        confidence: "high",
+        reason: `MCP clientInfo.name="${clientInfo.name}" (qwen-cli pattern)`,
+      };
+    }
+  }
+
+  // ── Explicit platform override ────────────────────────
+  const platformOverride = process.env.CONTEXT_MODE_PLATFORM;
+  if (platformOverride) {
+    const validPlatforms: PlatformId[] = [
+      "claude-code", "gemini-cli", "kilo", "opencode", "codex",
+      "vscode-copilot", "jetbrains-copilot", "cursor", "antigravity", "kiro", "pi", "zed", "qwen-code",
+    ];
+    if (validPlatforms.includes(platformOverride as PlatformId)) {
+      return {
+        platform: platformOverride as PlatformId,
+        confidence: "high",
+        reason: `CONTEXT_MODE_PLATFORM=${platformOverride} override`,
+      };
+    }
+  }
+
+  // ── High confidence: environment variables ─────────────
+
+  for (const [platform, vars] of PLATFORM_ENV_VARS) {
+    if (vars.some((v) => process.env[v])) {
+      return {
+        platform,
+        confidence: "high",
+        reason: `${vars.join(" or ")} env var set`,
+      };
+    }
+  }
+
+  // ── Medium confidence: config directory existence ──────
+
+  const home = homedir();
+
+  if (existsSync(resolve(home, ".claude"))) {
+    return {
+      platform: "claude-code",
+      confidence: "medium",
+      reason: "~/.claude/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".gemini"))) {
+    return {
+      platform: "gemini-cli",
+      confidence: "medium",
+      reason: "~/.gemini/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".codex"))) {
+    return {
+      platform: "codex",
+      confidence: "medium",
+      reason: "~/.codex/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".cursor"))) {
+    return {
+      platform: "cursor",
+      confidence: "medium",
+      reason: "~/.cursor/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".kiro"))) {
+    return {
+      platform: "kiro",
+      confidence: "medium",
+      reason: "~/.kiro/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".pi"))) {
+    return {
+      platform: "pi",
+      confidence: "medium",
+      reason: "~/.pi/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".qwen"))) {
+    return {
+      platform: "qwen-code",
+      confidence: "medium",
+      reason: "~/.qwen/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".openclaw"))) {
+    return {
+      platform: "openclaw",
+      confidence: "medium",
+      reason: "~/.openclaw/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".config", "kilo"))) {
+    return {
+      platform: "kilo",
+      confidence: "medium",
+      reason: "~/.config/kilo/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".config", "JetBrains"))) {
+    return {
+      platform: "jetbrains-copilot",
+      confidence: "medium",
+      reason: "~/.config/JetBrains/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".config", "opencode"))) {
+    return {
+      platform: "opencode",
+      confidence: "medium",
+      reason: "~/.config/opencode/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".config", "zed"))) {
+    return {
+      platform: "zed",
+      confidence: "medium",
+      reason: "~/.config/zed/ directory exists",
+    };
+  }
+
+  // ── Low confidence: fallback ───────────────────────────
+
+  return {
+    platform: "claude-code",
+    confidence: "low",
+    reason: "No platform detected, defaulting to Claude Code",
+  };
+}
+
+/**
+ * Get the adapter instance for a given platform.
+ * Lazily imports platform-specific adapter modules.
+ */
+export async function getAdapter(platform?: PlatformId): Promise<HookAdapter> {
+  const target = platform ?? detectPlatform().platform;
+
+  switch (target) {
+    case "claude-code": {
+      const { ClaudeCodeAdapter } = await import("./claude-code/index.js");
+      return new ClaudeCodeAdapter();
+    }
+
+    case "gemini-cli": {
+      const { GeminiCLIAdapter } = await import("./gemini-cli/index.js");
+      return new GeminiCLIAdapter();
+    }
+
+    case "kilo":
+    case "opencode": {
+      const { OpenCodeAdapter } = await import("./opencode/index.js");
+      return new OpenCodeAdapter(target);
+    }
+
+    case "openclaw": {
+      const { OpenClawAdapter } = await import("./openclaw/index.js");
+      return new OpenClawAdapter();
+    }
+
+    case "codex": {
+      const { CodexAdapter } = await import("./codex/index.js");
+      return new CodexAdapter();
+    }
+
+    case "vscode-copilot": {
+      const { VSCodeCopilotAdapter } = await import("./vscode-copilot/index.js");
+      return new VSCodeCopilotAdapter();
+    }
+
+    case "jetbrains-copilot": {
+      const { JetBrainsCopilotAdapter } = await import("./jetbrains-copilot/index.js");
+      return new JetBrainsCopilotAdapter();
+    }
+
+    case "cursor": {
+      const { CursorAdapter } = await import("./cursor/index.js");
+      return new CursorAdapter();
+    }
+
+    case "antigravity": {
+      const { AntigravityAdapter } = await import("./antigravity/index.js");
+      return new AntigravityAdapter();
+    }
+
+    case "kiro": {
+      const { KiroAdapter } = await import("./kiro/index.js");
+      return new KiroAdapter();
+    }
+
+    case "zed": {
+      const { ZedAdapter } = await import("./zed/index.js");
+      return new ZedAdapter();
+    }
+
+    case "qwen-code": {
+      const { QwenCodeAdapter } = await import("./qwen-code/index.js");
+      return new QwenCodeAdapter();
+    }
+
+    default: {
+      // Unsupported platform — fall back to Claude Code adapter
+      // (MCP server works everywhere, hooks may not)
+      const { ClaudeCodeAdapter } = await import("./claude-code/index.js");
+      return new ClaudeCodeAdapter();
+    }
+  }
+}

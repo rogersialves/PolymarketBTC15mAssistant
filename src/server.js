@@ -15,8 +15,11 @@ import "dotenv/config";
 // the very first requests. Both modules are no-ops if disabled via env.
 import { startEventLoopMonitor } from "./diagnostics/eventLoopMonitor.js";
 import { startHttpDebug } from "./diagnostics/httpDebug.js";
+import { startMemoryMonitor } from "./diagnostics/memoryMonitor.js";
+import { diagLog } from "./diagnostics/diagSink.js";
 startEventLoopMonitor();
 startHttpDebug();
+startMemoryMonitor();
 
 import express from "express";
 import http from "node:http";
@@ -74,7 +77,7 @@ import { mergeTradeHistoryRecords, readTradeHistoryFile, writeTradeHistoryFileAt
 import { backfillSimTradesFromHistory, enrichSimRowsWithTradeHistory, persistSimCsvTokenColumns, SIM_TRADES_HEADER } from "./simTradeHistoryBackfill.js";
 import { isPostgresEnabled } from "./storage/db.js";
 import { buildTradeHistoryAnalysis } from "./storage/tradeHistoryAnalysis.js";
-import { ensureTradeHistorySchema, listTradeHistoryRecords, upsertTradeHistoryRecords } from "./storage/tradeHistoryStore.js";
+import { ensureTradeHistorySchema, listTradeHistoryRecords, listTradeHistoryForAnalysis, upsertTradeHistoryRecords } from "./storage/tradeHistoryStore.js";
 import { ensureRuntimeEventSchema, insertRuntimeEvent } from "./storage/runtimeEventStore.js";
 
 applyGlobalProxyFromEnv();
@@ -528,7 +531,9 @@ function persistRuntimeRaw({ eventType, timeframe, marketSlug, timestamp, raw, f
 
 function timeoutAfter(ms, label) {
   return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+    // .unref() so pending timeout timers don't keep the event loop alive
+    // and don't inflate libuv's timer heap when many CLOBs are inflight.
+    setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms).unref();
   });
 }
 
@@ -712,8 +717,33 @@ function getBtcSession(now = new Date()) {
 // Polymarket resolver (per-timeframe)
 // ────────────────────────────────────────────────────────
 
+// FIX BC: Shared Gamma backoff across ALL resolver instances (5m + 15m engines).
+// Run 19: each engine had its own lastGammaTimeoutMs. When the 20s backoff expired
+// simultaneously for both, both tried Gamma at once → inflight[gamma=2] while
+// Binance + Polygon were also in-flight → 4 concurrent slow TLS connections →
+// loopLag p50=2785ms → zombie sockets → RSS 454MB crash.
+// Shared backoff means: when ONE engine's Gamma times out, BOTH engines enter
+// backoff. Only one engine will attempt Gamma per backoff window.
+//
+// FIX BE: Exponential backoff. Gamma has NEVER succeeded in any run so far
+// (consistent timeout pattern). Each failed retry creates a zombie TLS socket
+// that lives 3-9s after the AbortSignal, consuming HTTP global slots and
+// triggering GC cascades. Exponential backoff caps at 300s (5 min) after
+// 4+ consecutive failures, reducing zombie creation rate by ~15x.
+let _sharedGammaLastTimeoutMs = 0;
+let _sharedGammaConsecFailures = 0;  // FIX BE: consecutive failure counter
+
+function _gammaBackoffMs() {
+  // 20s → 40s → 80s → 160s → 300s (cap) after 0,1,2,3,4+ failures
+  return Math.min(20_000 * Math.pow(2, _sharedGammaConsecFailures), 300_000);
+}
+
 function createPolymarketResolver(preset, tfLabel) {
   const cache = { market: null, fetchedAtMs: 0 };
+  let resolveInFlight = null;
+  let currentSnapshotAbort = null;
+  // FIX BC: Use shared module-level backoff (see _sharedGammaLastTimeoutMs above).
+  // Per-instance lastGammaTimeoutMs removed — both engines now share one backoff.
 
   function getCachedMarket() {
     return cache.market;
@@ -723,25 +753,74 @@ function createPolymarketResolver(preset, tfLabel) {
     const now = Date.now();
     if (cache.market && now - cache.fetchedAtMs < CONFIG.polymarketResolveCacheMs) return cache.market;
 
-    try {
-      const events = await fetchLiveEventsBySeriesId({ seriesId: preset.seriesId, limit: 25 });
-      const allMarkets = flattenEventMarkets(events);
-      const selected = pickLatestLiveMarket(allMarkets);
-      cache.market = selected;
-      cache.fetchedAtMs = now;
-      return selected;
-    } catch (err) {
-      if (cache.market) {
-        console.warn(`⚠️  Polymarket fetch falhou; usando mercado em cache: ${err?.message || err}`);
-        return cache.market;
-      }
-      throw err;
+    // FIX AN: Backoff must apply even when cache is empty (was: cache.market &&
+    // which always skipped the guard when cache=null, causing continuous 4s
+    // Gamma retries on every tick and RSS accumulation leading to OOM).
+    // When in backoff with a cached market, return it. Without a cached market
+    // and in backoff, throw so the snapshot step is skipped gracefully.
+    if (now - _sharedGammaLastTimeoutMs < _gammaBackoffMs()) {
+      if (cache.market) return cache.market;
+      throw Object.assign(new Error("Gamma API in backoff — no cached market yet"), { name: "GammaBackoff" });
     }
+
+    // Dedup: if a fetch is already in-flight, piggyback on it instead of
+    // launching a second concurrent request to gamma-api.
+    if (resolveInFlight) return resolveInFlight;
+
+    resolveInFlight = (async () => {
+      try {
+        const events = await fetchLiveEventsBySeriesId({ seriesId: preset.seriesId, limit: 25 });
+        const allMarkets = flattenEventMarkets(events);
+        const selected = pickLatestLiveMarket(allMarkets);
+        cache.market = selected;
+        cache.fetchedAtMs = Date.now();
+        _sharedGammaConsecFailures = 0;  // FIX BE: reset on success
+        return selected;
+      } catch (err) {
+        // FIX AQ: Set backoff timer on ANY timeout, regardless of cache state.
+        // Previously only set when cache.market existed — meaning the 15m engine
+        // with no cache entry would retry Gamma every tick (every ~15s) without
+        // ever triggering the 60s backoff, blocking the per-host semaphore for
+        // all other Gamma consumers.
+        const msg = err?.message || String(err);
+        if (/timeout/i.test(msg)) {
+          _sharedGammaLastTimeoutMs = Date.now();
+          // FIX BE: exponential backoff — increment failure counter.
+          // Next backoff = min(20s * 2^failures, 300s). Caps at 5 min after 4+ failures.
+          _sharedGammaConsecFailures = Math.min(_sharedGammaConsecFailures + 1, 10);
+        }
+        if (cache.market) {
+          console.warn(`⚠️  Polymarket fetch falhou; usando mercado em cache: ${msg}`);
+          return cache.market;
+        }
+        throw err;
+      } finally {
+        resolveInFlight = null;
+      }
+    })();
+
+    return resolveInFlight;
   }
 
   async function fetchSnapshot() {
+    // FIX F: Create the AbortController BEFORE await resolve() and register it
+    // immediately. When an outer withTimeout abandons this fetchSnapshot() as a
+    // zombie, the next tick's Fix-D will abort this controller before the zombie
+    // ever fires CLOBs. The zombie then checks signal.aborted after resolve()
+    // returns and exits without opening any CLOB sockets — preventing the
+    // cascade of 32+ simultaneous connections that caused the OOM freeze.
+    const snapshotAbort = new AbortController();
+    if (currentSnapshotAbort) {
+      currentSnapshotAbort.abort();
+    }
+    currentSnapshotAbort = snapshotAbort;
+
     const market = await resolve();
     if (!market) return { ok: false };
+    // If we were aborted while waiting in resolve() (this snapshot is a zombie
+    // abandoned by an outer withTimeout and the next tick already ran Fix-D),
+    // exit immediately without firing any CLOB requests.
+    if (snapshotAbort.signal.aborted) return { ok: false };
 
     const outcomes = Array.isArray(market.outcomes) ? market.outcomes : (typeof market.outcomes === "string" ? JSON.parse(market.outcomes) : []);
     const outcomePrices = Array.isArray(market.outcomePrices) ? market.outcomePrices : (typeof market.outcomePrices === "string" ? JSON.parse(market.outcomePrices) : []);
@@ -764,39 +843,66 @@ function createPolymarketResolver(preset, tfLabel) {
     if (!upTokenId || !downTokenId) return { ok: false, market };
 
     let upClobPrice = null, downClobPrice = null;
-    let upOb = {}, downOb = {};
     let priceFresh = false;
-    const clobPrices = Promise.all([
-      fetchClobPrice({ tokenId: upTokenId, side: "buy" }),
-      fetchClobPrice({ tokenId: downTokenId, side: "buy" })
-    ]);
-    clobPrices.catch(() => {});
-
-    const clobBooks = Promise.all([
-      fetchOrderBook({ tokenId: upTokenId }),
-      fetchOrderBook({ tokenId: downTokenId })
-    ]);
-    // Prevent unhandled rejection if these promises lose the race below
-    // and the individual fetches later reject (e.g. CLOB timeout fires after budget).
-    clobBooks.catch(() => {});
-
+    // snapshotAbort was already created above (before await resolve()).
+    // It covers all CLOB price requests. Aborted in finally{} so sockets are
+    // released as soon as the budget expires or prices are obtained.
+    // FIX G: clobBooks removed — fetchOrderBook calls were fire-and-forget
+    // dead code (the .then() after return never updated the returned object
+    // because upOb/downOb are local vars captured by value). They also
+    // always failed with err=20 at ~85ms, adding 4 useless connections per
+    // tick (50% of all CLOB traffic) that contributed to the RSS cascade.
+    // FIX AH: Fetch CLOB prices sequentially (not Promise.all) to avoid 2
+    // simultaneous TLS connections per engine. With 2 engines staggered by
+    // 500ms, max concurrent CLOB connections is now 1 (down from 4).
+    //
+    // FIX BK: Per-price AbortController timeouts so each price fetch is aborted
+    // at exactly 1500ms, releasing the host semaphore immediately.
+    // FIX BN: When RSS > 190MB, process._httpPaused=true and fetchClobPrice()
+    // throws AbortError immediately \u2014 upClobPrice/downClobPrice stay null,
+    // engine falls back to cached Gamma prices. No circuit breaker needed here.
     try {
-      const [upP, downP] = await Promise.race([
-        clobPrices,
-        timeoutAfter(CONFIG.polymarketSnapshotClobBudgetMs, `polymarket clob price ${tfLabel}`)
-      ]);
+      let upP = null, downP = null;
+      const upPriceAbort = new AbortController();
+      const upPriceTimer = setTimeout(
+        () => upPriceAbort.abort(new Error(`CLOB price up timeout after ${CONFIG.polymarketSnapshotClobBudgetMs}ms`)),
+        CONFIG.polymarketSnapshotClobBudgetMs
+      );
+      try {
+        upP = await fetchClobPrice({
+          tokenId: upTokenId,
+          side: "buy",
+          signal: AbortSignal.any([upPriceAbort.signal, snapshotAbort.signal])
+        });
+      } catch { /* upClobPrice stays null */ }
+      clearTimeout(upPriceTimer);
+
+      if (!snapshotAbort.signal.aborted) {
+        const downPriceAbort = new AbortController();
+        const downPriceTimer = setTimeout(
+          () => downPriceAbort.abort(new Error(`CLOB price down timeout after ${CONFIG.polymarketSnapshotClobBudgetMs}ms`)),
+          CONFIG.polymarketSnapshotClobBudgetMs
+        );
+        try {
+          downP = await fetchClobPrice({
+            tokenId: downTokenId,
+            side: "buy",
+            signal: AbortSignal.any([downPriceAbort.signal, snapshotAbort.signal])
+          });
+        } catch { /* downClobPrice stays null */ }
+        clearTimeout(downPriceTimer);
+      }
       upClobPrice = upP;
       downClobPrice = downP;
       priceFresh = Number.isFinite(upClobPrice) && Number.isFinite(downClobPrice);
     } catch {
-      // Do not fall back to Gamma for tradable prices. A stale Polymarket
-      // price is worse than no price for entry decisions.
+      // Do not fall back to Gamma for tradable prices.
+    } finally {
+      snapshotAbort.abort();
+      if (currentSnapshotAbort === snapshotAbort) {
+        currentSnapshotAbort = null;
+      }
     }
-
-    clobBooks.then(([uOb, dOb]) => {
-      upOb = summarizeOrderBook(uOb);
-      downOb = summarizeOrderBook(dOb);
-    }).catch(() => {});
 
     return {
       ok: true,
@@ -806,7 +912,7 @@ function createPolymarketResolver(preset, tfLabel) {
       priceFresh,
       priceSource: priceFresh ? "clob" : "unavailable",
       priceFetchedAt: Date.now(),
-      orderbook: { up: upOb, down: downOb },
+      orderbook: { up: {}, down: {} },
       tokenIds: { up: upTokenId, down: downTokenId }
     };
   }
@@ -1947,19 +2053,38 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
   const analysisCache = new Map(); // filterMode → { rowsRef, historyRef, result }
 
   async function computeSimAnalysis(filterMode) {
+    // FIX BR: skip heavy Postgres analysis when HTTP is paused (high RSS).
+    // Each analysis query allocates ~28MB RSS per engine (1915 JS objects +
+    // buildTradeHistoryAnalysis intermediate allocations). During a GC cascade
+    // this allocation is the primary trigger — Run 26 showed RSS jumping from
+    // 174MB → 231MB (+57MB) from two analysis calls while HTTP was paused.
+    // The analysis result is used only for trading decisions; when HTTP is
+    // paused, market data is already stale so skipping analysis is safe.
+    if (process._httpPaused) {
+      return null;
+    }
     if (isPostgresEnabled()) {
       try {
+        const tQuery0 = Date.now();
+        // Use the lightweight shared query (no `raw` column, cached 14s between
+        // both engines) instead of the full SELECT * that fetched 3-8MB per call.
         const tradeHistory = await withTimeout(
-          listTradeHistoryRecords(),
+          listTradeHistoryForAnalysis(),
           SIM_ANALYSIS_TIMEOUT_MS,
           `${tfLabel} trade_history analysis`
         );
+        const queryMs = Date.now() - tQuery0;
+        const tBuild0 = Date.now();
         const result = buildTradeHistoryAnalysis(tradeHistory, {
           timeframeLabel: tfLabel,
           filterMode,
           allIndicators: ALL_INDICATORS,
           scalpIndicators: SCALP_INDICATORS
         });
+        const buildMs = Date.now() - tBuild0;
+        if (queryMs >= 200 || buildMs >= 100) {
+          diagLog(`[analysisDebug] tf=${tfLabel} mode=${filterMode || "*"} rows=${tradeHistory.length} query=${queryMs}ms build=${buildMs}ms`);
+        }
         return result.totalSnapshots >= 1 ? result : null;
       } catch (err) {
         console.warn(`⚠️  [${tfLabel}] análise trade_history/Postgres falhou: ${err?.message || err}`);
@@ -2770,7 +2895,11 @@ async function main() {
   }
 
   startEngineRunner("5m", engine5m);
-  startEngineRunner("15m", engine15m);
+  // FIX AH: Stagger 15m engine by 500ms so its 2 CLOB price fetches never
+  // fire simultaneously with the 5m engine's 2 CLOB fetches. With both at the
+  // same interval start, all 4 TLS connections open at once, saturating libuv's
+  // 4 crypto thread pool workers and causing 1000+ ms event loop freezes.
+  setTimeout(() => startEngineRunner("15m", engine15m), 500);
 }
 
 main();

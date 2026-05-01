@@ -1,0 +1,29 @@
+filters:
+  and:
+    - 'type == "chat-session"'
+
+properties:
+  session_id:
+    displayName: "Session"
+  status:
+    displayName: "Status"
+  source:
+    displayName: "Source"
+  created:
+    displayName: "Created"
+  updated:
+    displayName: "Updated"
+
+views:
+  - type: table
+    name: "Chat Sessions"
+    order:
+      - file.name
+      - session_id
+      - status
+      - source
+      - created
+      - updated
+    sort:
+      - property: updated
+        direction: DESC
