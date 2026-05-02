@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="dry.css?v=20260502-settings-page">
+  <link rel="stylesheet" href="dry.css?v=20260502-strategy-canvas-flow">
 </head>
 <body data-page="settings" class="settings-page">
   <header id="topbar">
@@ -33,8 +33,10 @@
     <div class="settings-hero">
       <p class="settings-hero-kicker">Polymarket · BTC</p>
       <h1 class="settings-hero-title">Robot Strategy Configuration</h1>
-      <p class="settings-hero-desc">Modo global, indicadores ativos e parâmetros Scalp Force. As alterações são enviadas ao servidor ao salvar.</p>
+      <p class="settings-hero-desc">Modo global, canvas de estratégia Scalp (entrada / sizing / saídas), escopo por slug BTC 5m ou 15m, e parâmetros avançados. Salve para aplicar no servidor.</p>
     </div>
+
+    <div id="strategyCanvasRoot" class="strategy-canvas-root" aria-label="Construtor de estratégia"></div>
 
     <div class="config-modal settings-panel" onclick="event.stopPropagation()">
       <div class="config-header settings-config-header">
@@ -83,6 +85,7 @@
     </div>
   </main>
 
-  <script src="dry.js?v=20260502-settings-page"></script>
+  <script src="dry.js?v=20260502-strategy-canvas-flow"></script>
+  <script src="strategyCanvas.js?v=20260502-strategy-canvas-flow"></script>
 </body>
 </html>

@@ -87,6 +87,15 @@ import {
 import { isPostgresEnabled } from "./storage/db.js";
 import { ensureRuntimeEventSchema, insertRuntimeEvent } from "./storage/runtimeEventStore.js";
 import { mergeRuntimeScalpTradesIntoWallet } from "./scalp/mergeRuntimeScalpTradesIntoWallet.js";
+import {
+  buildScalpStrategyGraphFromConfig,
+  embedConfigIntoScalpGraph,
+  compileScalpStrategyGraphToPatch
+} from "./scalp/strategyGraph.js";
+import {
+  coerceScalpBindingFamilies,
+  marketSlugAllowedForScalpBinding
+} from "./scalp/slugBinding.js";
 import { ensureTradeHistorySchema } from "./storage/tradeHistoryStore.js";
 
 applyGlobalProxyFromEnv();
@@ -200,8 +209,30 @@ const tradingConfig = {
   indicatorConfigs: {
     [SCALP_5M]: makeDefaultScalpConfig(5),
     [SCALP_15M]: makeDefaultScalpConfig(15)
+  },
+  /** @type {Record<string, { allowedSlugFamilies?: string[], graph?: object | null }>} */
+  scalpStrategyBindings: {
+    [SCALP_5M]: { allowedSlugFamilies: ["btc-updown-5m"], graph: null },
+    [SCALP_15M]: { allowedSlugFamilies: ["btc-updown-15m"], graph: null }
   }
 };
+
+function buildScalpBindingsPayload() {
+  const out = {};
+  for (const name of SCALP_INDICATORS) {
+    const cfg = getScalpConfig(name);
+    const entry = tradingConfig.scalpStrategyBindings[name] || {};
+    const families = coerceScalpBindingFamilies(name);
+    let graph = entry.graph;
+    if (!graph || typeof graph !== "object") {
+      graph = embedConfigIntoScalpGraph(buildScalpStrategyGraphFromConfig(cfg, name), cfg);
+    } else {
+      graph = embedConfigIntoScalpGraph(graph, cfg);
+    }
+    out[name] = { allowedSlugFamilies: [...families], graph };
+  }
+  return out;
+}
 
 function getScalpConfig(name) { return tradingConfig.indicatorConfigs[name]; }
 function isScalpEnabled(name) { return Boolean(tradingConfig.indicatorConfigs[name]?.enabled); }
@@ -258,6 +289,7 @@ function buildConfigPayload() {
     enabledIndicators15m: isScalpEnabled(SCALP_15M) ? [SCALP_15M] : [],
     stakesPerIndicator: Object.fromEntries(SCALP_INDICATORS.map(n => [n, getScalpConfig(n).stakeUsd])),
     indicatorConfigs,
+    scalpStrategyBindings: buildScalpBindingsPayload(),
     dryRun: polyTrader.dryRun,
     maxStake: polyTrader.maxStake,
     initialized: polyTrader.initialized,
@@ -288,6 +320,16 @@ function loadPersistedTradingConfig() {
     if (Array.isArray(payload?.enabledIndicators15m) && payload.enabledIndicators15m.includes(SCALP_15M)) {
       tradingConfig.indicatorConfigs[SCALP_15M].enabled = true;
     }
+    if (payload?.scalpStrategyBindings && typeof payload.scalpStrategyBindings === "object") {
+      for (const name of SCALP_INDICATORS) {
+        const b = payload.scalpStrategyBindings[name];
+        if (!b || typeof b !== "object") continue;
+        tradingConfig.scalpStrategyBindings[name] = {
+          allowedSlugFamilies: coerceScalpBindingFamilies(name),
+          graph: b.graph && typeof b.graph === "object" ? b.graph : null
+        };
+      }
+    }
     console.log(`⚙️  [Config] runtime carregado de ${RUNTIME_CONFIG_PATH}`);
   } catch (err) {
     console.warn(`⚠️  [Config] falha ao carregar runtime: ${err?.message || err}`);
@@ -304,7 +346,8 @@ function savePersistedTradingConfig() {
       enabledIndicators15m: isScalpEnabled(SCALP_15M) ? [SCALP_15M] : [],
       indicatorConfigs: Object.fromEntries(
         SCALP_INDICATORS.map(name => [name, { ...getScalpConfig(name) }])
-      )
+      ),
+      scalpStrategyBindings: buildScalpBindingsPayload()
     };
     fs.mkdirSync(path.dirname(RUNTIME_CONFIG_PATH), { recursive: true });
     const tmp = `${RUNTIME_CONFIG_PATH}.tmp`;
@@ -1009,6 +1052,7 @@ function createScalpEngine(windowMinutes, sharedStreams) {
         vwap: { price: currentVwap, slope: vwapSlope, distance: vwapDistance, slopeLabel: vwapSlopeLabel }
       };
 
+      const slugOk = marketSlugAllowedForScalpBinding(marketSlug, scalpIndicatorName);
       const scalpAdvance = advanceScalp(scalpRuntime, {
         nowMs: Date.now(),
         marketSlug,
@@ -1020,7 +1064,7 @@ function createScalpEngine(windowMinutes, sharedStreams) {
         marketPriceDown,
         signals: simSignals,
         config: scalpConfig,
-        enabled: scalpEnabled && polymarketCurrentFresh && polymarketPricesFresh
+        enabled: scalpEnabled && polymarketCurrentFresh && polymarketPricesFresh && slugOk
       });
 
       // ── LIVE dispatch (entry + exit) ──
@@ -1313,6 +1357,25 @@ function setupWebSocketHandlers() {
               tradingConfig.indicatorConfigs[name] = mergeScalpConfigPatch(
                 tradingConfig.indicatorConfigs[name], patch
               );
+            }
+          }
+
+          if (data.scalpStrategyBindings && typeof data.scalpStrategyBindings === "object") {
+            for (const name of SCALP_INDICATORS) {
+              const b = data.scalpStrategyBindings[name];
+              if (!b || typeof b !== "object") continue;
+              tradingConfig.scalpStrategyBindings[name] = tradingConfig.scalpStrategyBindings[name] || {};
+              tradingConfig.scalpStrategyBindings[name].allowedSlugFamilies = coerceScalpBindingFamilies(name);
+              if (b.graph && typeof b.graph === "object" && Array.isArray(b.graph.nodes) && b.graph.nodes.length) {
+                const patch = compileScalpStrategyGraphToPatch(b.graph);
+                if (Object.keys(patch).length) {
+                  tradingConfig.indicatorConfigs[name] = mergeScalpConfigPatch(
+                    tradingConfig.indicatorConfigs[name],
+                    patch
+                  );
+                }
+                tradingConfig.scalpStrategyBindings[name].graph = b.graph;
+              }
             }
           }
 

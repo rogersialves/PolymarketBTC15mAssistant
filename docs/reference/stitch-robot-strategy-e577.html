@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-[#0a0f1d] text-slate-300" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Robot - Strategy Builder</title>
+<!-- BEGIN: External Scripts -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'navy-dark': '#0a0f1d',
+            'navy-medium': '#0e1629',
+            'navy-light': '#16203a',
+            'accent-purple': '#8b5cf6',
+            'accent-teal': '#2dd4bf',
+            'node-bg': 'rgba(30, 41, 59, 0.7)',
+          }
+        }
+      }
+    }
+  </script>
+<!-- END: External Scripts -->
+<!-- BEGIN: Custom Styles -->
+<style data-purpose="scrollbar-styling">
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0f1d; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+  </style>
+<style data-purpose="canvas-grid">
+    .canvas-grid {
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+      background-size: 30px 30px;
+      background-color: #0c1425;
+    }
+    .node-connection {
+      stroke: #8b5cf6;
+      stroke-width: 2;
+      fill: none;
+      filter: drop-shadow(0 0 4px #8b5cf6);
+    }
+    .glow-purple {
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
+      border: 1px solid rgba(139, 92, 246, 0.6);
+    }
+    .glow-teal {
+      box-shadow: 0 0 15px rgba(45, 212, 191, 0.3);
+    }
+  </style>
+<!-- END: Custom Styles -->
+</head>
+<body class="h-full flex flex-col overflow-hidden select-none">
+<!-- BEGIN: MainHeader -->
+<header class="h-14 flex items-center justify-between px-6 bg-navy-dark border-b border-slate-800 shrink-0" data-purpose="app-header">
+<div class="flex items-center gap-2">
+<span class="text-white font-semibold text-lg tracking-wide">Robot</span>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-slate-400 hover:text-white transition-colors">
+<svg class="h-5 w-5" fill="none" stroke="currentColor" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+</header>
+<!-- END: MainHeader -->
+<!-- BEGIN: MainContent -->
+<main class="flex-1 flex overflow-hidden">
+<!-- BEGIN: LeftSidebar (Strategies) -->
+<aside class="w-64 bg-navy-medium border-r border-slate-800 flex flex-col shrink-0" data-purpose="strategies-sidebar">
+<div class="p-4 border-b border-slate-800">
+<h2 class="text-white font-medium mb-3">Strategies</h2>
+<div class="relative">
+<span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
+<svg class="h-4 w-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</span>
+<input class="w-full bg-navy-dark border-slate-700 rounded-md py-1.5 pl-9 text-sm focus:ring-accent-teal focus:border-accent-teal" placeholder="Search" type="text"/>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-2 space-y-2">
+<!-- Strategy Item: Active -->
+<div class="bg-navy-light/50 border border-accent-teal p-3 rounded-md">
+<div class="flex justify-between items-center mb-1">
+<span class="text-white font-medium text-sm">Aggressive Scalp</span>
+<div class="w-8 h-4 bg-accent-teal rounded-full relative cursor-pointer">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<div class="flex justify-between text-[10px]">
+<span class="text-slate-400">Enabled</span>
+<span class="text-accent-teal font-bold">Active</span>
+</div>
+</div>
+<!-- Strategy Item -->
+<div class="p-3 hover:bg-navy-light rounded-md transition-colors">
+<div class="flex justify-between items-center mb-1">
+<span class="text-slate-200 text-sm">Trend Follower</span>
+<div class="w-8 h-4 bg-accent-teal rounded-full relative cursor-pointer">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<div class="flex justify-between text-[10px]">
+<span class="text-slate-500">Enabled</span>
+<span class="text-accent-teal font-bold">Active</span>
+</div>
+</div>
+<!-- Strategy Item: Disabled -->
+<div class="p-3 opacity-60">
+<div class="flex justify-between items-center mb-1">
+<span class="text-slate-400 text-sm">Conservative Grid</span>
+<div class="w-8 h-4 bg-slate-700 rounded-full relative cursor-pointer">
+<div class="absolute left-0.5 top-0.5 w-3 h-3 bg-slate-400 rounded-full"></div>
+</div>
+</div>
+<div class="flex justify-between text-[10px]">
+<span class="text-slate-600">Disabled</span>
+<span class="text-slate-600">Inactive</span>
+</div>
+</div>
+<!-- Strategy Item: Disabled -->
+<div class="p-3 opacity-60">
+<div class="flex justify-between items-center mb-1">
+<span class="text-slate-400 text-sm">Crypte Arb</span>
+<div class="w-8 h-4 bg-slate-700 rounded-full relative cursor-pointer">
+<div class="absolute left-0.5 top-0.5 w-3 h-3 bg-slate-400 rounded-full"></div>
+</div>
+</div>
+<div class="flex justify-between text-[10px]">
+<span class="text-slate-600">Disabled</span>
+<span class="text-slate-600">Inactive</span>
+</div>
+</div>
+<!-- Strategy Item -->
+<div class="p-3">
+<div class="flex justify-between items-center mb-1">
+<span class="text-slate-200 text-sm">ETH DCA</span>
+<div class="w-8 h-4 bg-accent-teal rounded-full relative cursor-pointer">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<div class="flex justify-between text-[10px]">
+<span class="text-slate-500">Enabled</span>
+<span class="text-accent-teal font-bold">Active</span>
+</div>
+</div>
+</div>
+<div class="p-4 border-t border-slate-800">
+<button class="w-full py-2 px-4 border border-slate-700 rounded text-slate-300 text-sm hover:bg-slate-800 transition-colors">Create New Strategy</button>
+</div>
+</aside>
+<!-- END: LeftSidebar -->
+<!-- BEGIN: Main Workspace Area -->
+<div class="flex-1 flex flex-col overflow-hidden bg-navy-dark">
+<!-- BEGIN: Inspector Layout Container -->
+<div class="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
+<h1 class="text-slate-200 font-medium px-2">Inspector Layout</h1>
+<div class="flex-1 flex gap-4 overflow-hidden">
+<!-- BEGIN: Canvas Workspace -->
+<div class="flex-1 relative bg-[#0c1425] rounded-xl border border-slate-800 flex overflow-hidden canvas-grid" data-purpose="visual-editor">
+<!-- Floating Workspace Title & Status -->
+<div class="absolute top-4 left-6 flex items-center gap-2 z-10">
+<span class="text-white font-medium">Canvas Workspace</span>
+</div>
+<div class="absolute top-4 right-6 flex items-center gap-2 z-10 bg-navy-dark/80 px-2 py-1 rounded border border-slate-700">
+<span class="text-slate-400 text-xs">Status:</span>
+<span class="text-accent-teal text-xs font-bold">Valid</span>
+<div class="w-2.5 h-2.5 bg-accent-teal rounded-full shadow-[0_0_5px_#2dd4bf]"></div>
+</div>
+<!-- Left Tool Palette -->
+<div class="w-16 border-r border-slate-800/50 bg-navy-dark/40 flex flex-col items-center py-4 gap-6 z-10">
+<div class="flex flex-col items-center gap-1 cursor-pointer text-slate-400 hover:text-slate-200 mt-2">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M13 5l7 7-7 7M5 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<div class="mt-4 flex flex-col items-center gap-2 w-full">
+<div class="text-[9px] text-slate-400 mb-1">Indicator</div>
+<div class="flex flex-col items-center gap-0.5 group cursor-pointer">
+<div class="w-8 h-8 flex items-center justify-center text-accent-purple">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<span class="text-[9px] text-accent-purple">RSI</span>
+</div>
+<div class="flex flex-col items-center gap-0.5 group cursor-pointer mt-1">
+<div class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-300">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<span class="text-[9px] text-slate-400">EMA</span>
+</div>
+<div class="flex flex-col items-center gap-0.5 group cursor-pointer mt-1">
+<div class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-300">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M7 12l3-3 3 3 4-4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<span class="text-[9px] text-slate-400">MACD</span>
+</div>
+</div>
+<div class="w-6 h-px bg-slate-800 my-3"></div>
+<div class="flex flex-col items-center gap-2 w-full">
+<div class="text-[9px] text-slate-400 mb-1">Logic</div>
+<div class="flex flex-col items-center gap-0.5 group cursor-pointer">
+<div class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-300">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<span class="text-[9px] text-slate-400">OR</span>
+</div>
+<div class="flex flex-col items-center gap-0.5 group cursor-pointer mt-1">
+<div class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-300">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M5 10l7-7m0 0l7 7m-7-7v18" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<span class="text-[9px] text-slate-400">IF</span>
+</div>
+</div>
+<div class="w-6 h-px bg-slate-800 my-3"></div>
+<div class="flex flex-col items-center gap-2 w-full">
+<div class="text-[9px] text-slate-400 mb-1">Actions</div>
+<div class="flex flex-col items-center gap-0.5 group cursor-pointer">
+<div class="w-8 h-8 flex items-center justify-center text-accent-teal">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+</div>
+<div class="flex flex-col items-center gap-0.5 group cursor-pointer mt-1">
+<div class="w-8 h-8 flex items-center justify-center text-[#ef4444]">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+</div>
+<div class="mt-2 text-slate-500 hover:text-slate-300 cursor-pointer">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+</div>
+</div>
+<!-- Canvas Element Area (Visual Nodes) -->
+<div class="flex-1 relative">
+<svg class="absolute inset-0 w-full h-full pointer-events-none">
+<!-- Connections -->
+<path class="node-connection" d="M210 200 C 250 200, 250 200, 310 200"></path>
+<path class="node-connection" d="M480 200 C 530 200, 530 250, 580 270"></path>
+<path class="node-connection" d="M500 370 C 540 370, 540 310, 580 280"></path>
+<path class="node-connection" d="M720 275 C 750 275, 750 275, 800 275"></path>
+</svg>
+<!-- Node: RSI -->
+<div class="absolute top-[175px] left-[80px] w-32 h-14 bg-navy-medium glow-purple rounded-lg flex items-center px-4 gap-2 z-10 cursor-move">
+<svg class="w-5 h-5 text-accent-purple" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="text-xs text-slate-200">RSI (14)</span>
+<div class="absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-accent-purple rounded-full"></div>
+</div>
+<!-- Node: Less Than -->
+<div class="absolute top-[165px] left-[320px] w-36 bg-navy-medium border border-slate-700 rounded-lg p-2 z-10">
+<div class="flex items-center gap-1 mb-2">
+<span class="text-accent-purple text-xs">&lt;</span>
+<span class="text-[10px] text-slate-400">Less Than (&lt;)</span>
+</div>
+<div class="flex items-center justify-between text-[10px]">
+<span class="text-slate-500">Threshold</span>
+<div class="bg-navy-dark px-2 py-0.5 rounded border border-slate-800 text-slate-300">30</div>
+</div>
+<div class="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-accent-purple rounded-full"></div>
+<div class="absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-accent-purple rounded-full"></div>
+</div>
+<!-- Node: MACD -->
+<div class="absolute top-[340px] left-[320px] w-44 bg-navy-medium border border-slate-700 rounded-lg p-2 z-10">
+<div class="flex items-center gap-2 mb-1">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M7 12l3-3 3 3 4-4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="text-[10px] text-slate-300">MACD (12, 26, 9)</span>
+</div>
+<div class="flex items-center justify-between text-[10px]">
+<span class="text-slate-500">Crosses Above</span>
+<div class="bg-navy-dark px-1.5 py-0.5 rounded border border-slate-800 text-slate-300 flex items-center gap-1">
+                     Signal Line <svg class="w-2 h-2" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7"></path></svg>
+</div>
+</div>
+<div class="absolute -right-1.5 top-1/3 w-3 h-3 bg-accent-purple rounded-full"></div>
+</div>
+<!-- Node: AND -->
+<div class="absolute top-[250px] left-[590px] w-28 h-12 bg-navy-medium border border-slate-700 rounded-lg flex items-center px-3 gap-2 z-10">
+<svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="text-xs text-slate-200">AND</span>
+<div class="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-accent-purple rounded-full"></div>
+<div class="absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-accent-purple rounded-full"></div>
+</div>
+<!-- Node: Buy Action -->
+<div class="absolute top-[250px] left-[810px] w-28 h-12 bg-[#1a4d4a] border border-[#2dd4bf55] glow-teal rounded-lg flex items-center px-4 gap-2 z-10">
+<svg class="w-5 h-5 text-accent-teal" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="text-xs text-accent-teal font-semibold">Buy</span>
+<div class="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-accent-purple rounded-full"></div>
+</div>
+<!-- Minimap -->
+<div class="absolute bottom-6 right-6 w-40 h-24 bg-navy-dark/90 border border-slate-700 rounded p-2 flex items-center justify-center">
+<div class="relative w-full h-full opacity-50">
+<div class="absolute top-1/4 left-1 w-6 h-3 bg-accent-teal/30 border border-accent-teal/50"></div>
+<div class="absolute top-1/4 left-8 w-6 h-3 bg-accent-purple/30 border border-accent-purple/50"></div>
+<div class="absolute top-2/3 left-10 w-6 h-3 bg-accent-purple/30 border border-accent-purple/50"></div>
+<div class="absolute top-1/2 left-16 w-8 h-4 bg-slate-500/30 border border-slate-400/50"></div>
+<div class="absolute top-1/2 left-28 w-6 h-3 bg-accent-teal/60 border border-accent-teal/80"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- END: Canvas Workspace -->
+<!-- BEGIN: Node Inspector Sidebar -->
+<aside class="w-80 bg-navy-medium border border-slate-800 rounded-xl flex flex-col shrink-0 overflow-y-auto" data-purpose="node-inspector">
+<div class="p-4 border-b border-slate-800">
+<h3 class="text-slate-100 font-medium mb-4">Node Inspector</h3>
+<!-- Selected Node Header -->
+<div class="bg-navy-light p-3 rounded-lg border border-accent-purple/30 flex items-center gap-3 mb-6">
+<div class="text-accent-purple">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<span class="text-slate-100 font-medium text-sm">RSI (14)</span>
+</div>
+<!-- Input Properties -->
+<div class="space-y-4">
+<div data-purpose="input-group">
+<label class="block text-xs text-slate-500 mb-1.5">Source</label>
+<select class="w-full bg-navy-dark border-slate-700 rounded-md py-2 text-sm text-slate-300 focus:ring-accent-teal">
+<option>Close</option>
+<option>Open</option>
+<option>High</option>
+<option>Low</option>
+</select>
+</div>
+<div data-purpose="input-group">
+<label class="block text-xs text-slate-500 mb-1.5">Period</label>
+<div class="relative">
+<input class="w-full bg-navy-dark border-slate-700 rounded-md py-2 text-sm text-slate-300 focus:ring-accent-teal" type="number" value="14"/>
+<div class="absolute inset-y-0 right-0 flex flex-col border-l border-slate-700">
+<button class="px-1 text-slate-500 hover:text-slate-300"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M5 15l7-7 7 7"></path></svg></button>
+<button class="px-1 text-slate-500 hover:text-slate-300"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7"></path></svg></button>
+</div>
+</div>
+</div>
+<div data-purpose="input-group">
+<label class="block text-xs text-slate-500 mb-1.5">Calculation Method</label>
+<select class="w-full bg-navy-dark border-slate-700 rounded-md py-2 text-sm text-slate-300 focus:ring-accent-teal">
+<option>Pernal</option>
+<option>Standard</option>
+</select>
+</div>
+</div>
+</div>
+<!-- Accordion Sections -->
+<div class="p-4 space-y-3">
+<div class="group">
+<button class="w-full flex items-center justify-between text-slate-400 hover:text-slate-200 py-1">
+<div class="flex items-center gap-2">
+<svg class="w-3 h-3 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="text-xs uppercase font-semibold">Advanced Operators</span>
+</div>
+</button>
+<div class="mt-3 space-y-3 pl-5">
+<label class="flex items-center gap-3 cursor-pointer">
+<input checked="" class="form-radio bg-navy-dark border-slate-700 text-accent-teal" name="op" type="radio"/>
+<span class="text-xs text-slate-300">Always Operator</span>
+</label>
+<label class="flex items-center gap-3 cursor-pointer">
+<input class="form-radio bg-navy-dark border-slate-700 text-accent-teal" name="op" type="radio"/>
+<span class="text-xs text-slate-500">Disused Operator</span>
+</label>
+<select class="w-full bg-navy-dark/50 border-slate-800 rounded-md py-2 text-xs text-slate-600" disabled="">
+<option>Less Than</option>
+</select>
+</div>
+</div>
+<div class="h-px bg-slate-800 my-2"></div>
+<div class="group">
+<button class="w-full flex items-center justify-between text-slate-400 hover:text-slate-200 py-1">
+<div class="flex items-center gap-2">
+<svg class="w-3 h-3" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="text-xs uppercase font-semibold">Output Conditions</span>
+</div>
+</button>
+<div class="mt-3 space-y-3 pl-5">
+<div class="space-y-1">
+<label class="text-[10px] text-slate-600 uppercase">Routs (Close.)</label>
+<select class="w-full bg-navy-dark border-slate-700 rounded-md py-1.5 text-xs text-slate-400">
+<option>Select route</option>
+</select>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<!-- END: Node Inspector Sidebar -->
+</div>
+<!-- BEGIN: Bottom Position Sizing Panel -->
+<div class="bg-navy-medium border border-slate-800 rounded-xl p-6" data-purpose="position-sizing-panel">
+<h3 class="text-slate-100 font-medium mb-6">Position Sizing</h3>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8 items-end">
+<div>
+<label class="block text-xs text-slate-500 mb-2">Sizing Type</label>
+<div class="flex items-center gap-4">
+<label class="flex items-center gap-2 cursor-pointer">
+<input checked="" class="form-radio bg-navy-dark border-slate-700 text-accent-teal" type="radio"/>
+<span class="text-xs text-slate-300">Fixed Amount</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer">
+<input class="form-radio bg-navy-dark border-slate-700 text-accent-teal" type="radio"/>
+<span class="text-xs text-slate-300">Percentage of Balance</span>
+</label>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="flex-1">
+<label class="block text-xs text-slate-500 mb-1">Amount</label>
+<div class="relative">
+<input class="w-full bg-navy-dark border-slate-700 rounded-md py-2 text-sm text-slate-300 pr-12" type="text" value="1000"/>
+<span class="absolute right-3 top-2 text-[10px] text-slate-500">USDT</span>
+</div>
+</div>
+<div class="flex-1">
+<label class="block text-xs text-slate-500 mb-1">Percentage of Balance</label>
+<select class="w-full bg-navy-dark border-slate-700 rounded-md py-2 text-sm text-slate-300">
+<option>1.00%</option>
+</select>
+</div>
+</div>
+<div>
+<label class="block text-xs text-slate-500 mb-1">Leverage</label>
+<div class="flex items-center gap-4">
+<span class="text-xs text-slate-300 w-8">10x</span>
+<div class="flex-1 h-1.5 bg-slate-800 rounded-full relative overflow-hidden">
+<div class="absolute left-0 top-0 h-full w-[40%] bg-accent-teal shadow-[0_0_8px_#2dd4bf]"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- END: Bottom Position Sizing Panel -->
+</div>
+<!-- END: Inspector Layout Container -->
+</div>
+<!-- END: Main Workspace Area -->
+</main>
+<!-- END: MainContent -->
+<!-- BEGIN: Bottom Sticky Footer -->
+<footer class="h-16 bg-navy-dark border-t border-slate-800 flex items-center justify-between px-6 shrink-0" data-purpose="app-footer">
+<div class="flex gap-4">
+<button class="bg-gradient-to-r from-cyan-400 to-cyan-300 hover:from-cyan-300 hover:to-cyan-200 text-navy-dark shadow-[0_0_15px_rgba(45,212,191,0.6)] px-6 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 20 20"><path d="M4.5 3a.5.5 0 00-.5.5v13a.5.5 0 00.75.433l11-6.5a.5.5 0 000-.866l-11-6.5A.5.5 0 004.5 3z"></path></svg>
+        Run Backtest
+      </button>
+</div>
+<div class="flex items-center gap-8">
+<span class="text-[11px] text-slate-500">Last Saved: Today, 10:42 AM</span>
+<button class="bg-accent-teal hover:bg-teal-400 text-navy-dark px-8 py-2 rounded-lg text-sm font-bold shadow-[0_0_15px_rgba(45,212,191,0.4)] transition-all">
+        Save &amp; Deploy
+      </button>
+</div>
+</footer>
+<!-- END: Bottom Sticky Footer -->
+</body></html>

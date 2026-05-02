@@ -1,7 +1,7 @@
 {
   "version": 1,
   "operationalMode": "scalp_only_phase_1",
-  "savedAt": "2026-05-02T04:27:35.706Z",
+  "savedAt": "2026-05-02T05:44:10.911Z",
   "enabledIndicators5m": [
     "Scalp Force 5m"
   ],
@@ -48,6 +48,257 @@
       "maxEffectiveStakeUsd": 10,
       "enabled": true,
       "liveMode": false
+    }
+  },
+  "scalpStrategyBindings": {
+    "Scalp Force 5m": {
+      "allowedSlugFamilies": [
+        "btc-updown-5m"
+      ],
+      "graph": {
+        "schemaVersion": 1,
+        "indicatorName": "Scalp Force 5m",
+        "nodes": [
+          {
+            "id": "entry_direction",
+            "type": "trigger",
+            "title": "Direção",
+            "body": "Mediana das bolsas vs Price to Beat → lado UP ou DOWN.",
+            "data": {
+              "directionSources": [
+                "binance",
+                "coinbase",
+                "kraken"
+              ]
+            }
+          },
+          {
+            "id": "entry_strength",
+            "type": "trigger",
+            "title": "Confirmação",
+            "body": "Indicadores de força (strengthAgrees) alinhados à direção.",
+            "data": {
+              "requiredStrengthSignals": [
+                "Heiken+OBV",
+                "5+ Agree"
+              ]
+            }
+          },
+          {
+            "id": "entry_window",
+            "type": "gate",
+            "title": "Janela de entrada",
+            "body": "Até 300s após abertura do candle.",
+            "data": {
+              "entryOpenWindowSec": 300
+            }
+          },
+          {
+            "id": "entry_band",
+            "type": "gate",
+            "title": "Faixa de contrato",
+            "body": "Preço do contrato entre 51% e 55%.",
+            "data": {
+              "entryMinPct": 51,
+              "entryMaxPct": 55
+            }
+          },
+          {
+            "id": "sizing",
+            "type": "sizing",
+            "title": "Tamanho / execução",
+            "body": "Stake $5 · min shares 5 · cap $10 · max entries/candle 5.",
+            "data": {
+              "stakeUsd": 5,
+              "minSharesFloor": 5,
+              "maxEffectiveStakeUsd": 10,
+              "maxEntriesPerCandle": 5
+            }
+          },
+          {
+            "id": "exit_tp",
+            "type": "exit",
+            "title": "Alvo / TP",
+            "body": "TP 75% · modo trail · trail 2¢ · força TP on · fail ticks 2.",
+            "data": {
+              "takeProfitPct": 75,
+              "tpExitMode": "trail",
+              "tpTrailCents": 2,
+              "tpForceExitEnabled": true,
+              "tpForceFailTicks": 2
+            }
+          },
+          {
+            "id": "exit_protect",
+            "type": "exit",
+            "title": "Proteções / tempo",
+            "body": "Min exit 58% · trail arm 1¢ · trail stop 3¢ · hold max 300s.",
+            "data": {
+              "minExitPct": 58,
+              "trailingArmingCents": 1,
+              "trailingCushionCents": 3,
+              "maxHoldSec": 300
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e_dir_window",
+            "from": "entry_direction",
+            "to": "entry_window"
+          },
+          {
+            "id": "e_str_window",
+            "from": "entry_strength",
+            "to": "entry_window"
+          },
+          {
+            "id": "e_window_band",
+            "from": "entry_window",
+            "to": "entry_band"
+          },
+          {
+            "id": "e_band_sizing",
+            "from": "entry_band",
+            "to": "sizing"
+          },
+          {
+            "id": "e_sizing_tp",
+            "from": "sizing",
+            "to": "exit_tp"
+          },
+          {
+            "id": "e_sizing_protect",
+            "from": "sizing",
+            "to": "exit_protect"
+          }
+        ]
+      }
+    },
+    "Scalp Force 15m": {
+      "allowedSlugFamilies": [
+        "btc-updown-15m"
+      ],
+      "graph": {
+        "schemaVersion": 1,
+        "indicatorName": "Scalp Force 15m",
+        "nodes": [
+          {
+            "id": "entry_direction",
+            "type": "trigger",
+            "title": "Direção",
+            "body": "Mediana das bolsas vs Price to Beat → lado UP ou DOWN.",
+            "data": {
+              "directionSources": [
+                "binance",
+                "coinbase",
+                "kraken"
+              ]
+            }
+          },
+          {
+            "id": "entry_strength",
+            "type": "trigger",
+            "title": "Confirmação",
+            "body": "Indicadores de força (strengthAgrees) alinhados à direção.",
+            "data": {
+              "requiredStrengthSignals": [
+                "Heiken+OBV",
+                "5+ Agree",
+                "Delta 3m"
+              ]
+            }
+          },
+          {
+            "id": "entry_window",
+            "type": "gate",
+            "title": "Janela de entrada",
+            "body": "Até 900s após abertura do candle.",
+            "data": {
+              "entryOpenWindowSec": 900
+            }
+          },
+          {
+            "id": "entry_band",
+            "type": "gate",
+            "title": "Faixa de contrato",
+            "body": "Preço do contrato entre 51% e 55%.",
+            "data": {
+              "entryMinPct": 51,
+              "entryMaxPct": 55
+            }
+          },
+          {
+            "id": "sizing",
+            "type": "sizing",
+            "title": "Tamanho / execução",
+            "body": "Stake $5 · min shares 5 · cap $10 · max entries/candle 5.",
+            "data": {
+              "stakeUsd": 5,
+              "minSharesFloor": 5,
+              "maxEffectiveStakeUsd": 10,
+              "maxEntriesPerCandle": 5
+            }
+          },
+          {
+            "id": "exit_tp",
+            "type": "exit",
+            "title": "Alvo / TP",
+            "body": "TP 75% · modo trail · trail 2¢ · força TP on · fail ticks 2.",
+            "data": {
+              "takeProfitPct": 75,
+              "tpExitMode": "trail",
+              "tpTrailCents": 2,
+              "tpForceExitEnabled": true,
+              "tpForceFailTicks": 2
+            }
+          },
+          {
+            "id": "exit_protect",
+            "type": "exit",
+            "title": "Proteções / tempo",
+            "body": "Min exit 58% · trail arm 3¢ · trail stop 5¢ · hold max 900s.",
+            "data": {
+              "minExitPct": 58,
+              "trailingArmingCents": 3,
+              "trailingCushionCents": 5,
+              "maxHoldSec": 900
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e_dir_window",
+            "from": "entry_direction",
+            "to": "entry_window"
+          },
+          {
+            "id": "e_str_window",
+            "from": "entry_strength",
+            "to": "entry_window"
+          },
+          {
+            "id": "e_window_band",
+            "from": "entry_window",
+            "to": "entry_band"
+          },
+          {
+            "id": "e_band_sizing",
+            "from": "entry_band",
+            "to": "sizing"
+          },
+          {
+            "id": "e_sizing_tp",
+            "from": "sizing",
+            "to": "exit_tp"
+          },
+          {
+            "id": "e_sizing_protect",
+            "from": "sizing",
+            "to": "exit_protect"
+          }
+        ]
+      }
     }
   }
 }

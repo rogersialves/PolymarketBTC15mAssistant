@@ -2424,6 +2424,9 @@ function populateConfigModal(cfg) {
   buildScalpSection("configScalpSection5m",  enabled5m);
   buildScalpSection("configScalpSection15m", enabled15m);
   updateIndicatorCount();
+  if (typeof window.renderScalpStrategyUI === "function") {
+    window.renderScalpStrategyUI(cfg);
+  }
 }
 
 function toggleIndicator(el, name, tf) {
@@ -2613,14 +2616,19 @@ function saveConfig() {
   });
 
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
+    const payload = {
       action: "setConfig",
       enabledIndicators5m,
       enabledIndicators15m,
       stakesPerIndicator,
       indicatorConfigs,
       dryRun
-    }));
+    };
+    if (typeof window.collectScalpStrategyBindingsForSave === "function") {
+      const sb = window.collectScalpStrategyBindingsForSave();
+      if (sb?.scalpStrategyBindings) payload.scalpStrategyBindings = sb.scalpStrategyBindings;
+    }
+    ws.send(JSON.stringify(payload));
   }
   if (isSettingsPage) {
     showSettingsSaveFeedback();

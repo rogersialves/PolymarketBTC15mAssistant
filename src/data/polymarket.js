@@ -16,6 +16,13 @@ export function isBtcUpDownWindowSlug(slug) {
   return Boolean(slug && BTC_UPDOWN_WINDOW_SLUG_RE.test(String(slug)));
 }
 
+/** `btc-updown-5m` | `btc-updown-15m` | null if slug is not a BTC window slug. */
+export function btcUpDownSlugFamily(slug) {
+  const m = String(slug || "").match(BTC_UPDOWN_WINDOW_SLUG_RE);
+  if (!m) return null;
+  return `btc-updown-${m[1].toLowerCase()}`;
+}
+
 function escapeRegex(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
