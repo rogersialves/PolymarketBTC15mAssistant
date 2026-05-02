@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { CONFIG } from "../config.js";
-import { fetchKlines } from "./binance.js";
+import { applyLiveCloseToLatestCandle, fetchKlines } from "./binance.js";
 
 test("fetchKlines returns stale cached candles immediately while refreshing in background", async () => {
   const originalFetch = globalThis.fetch;
@@ -82,4 +82,23 @@ test("fetchKlines backs off stale refresh attempts after a failed refresh", asyn
     CONFIG.binanceRefreshRetryMs = originalRetryMs;
     CONFIG.binanceBaseUrls = originalBases;
   }
+});
+
+test("applyLiveCloseToLatestCandle updates last bar close and widens high/low", () => {
+  const candles = [
+    { open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 },
+    { open: 1.5, high: 1.6, low: 1.4, close: 1.45, volume: 5 }
+  ];
+  const out = applyLiveCloseToLatestCandle(candles, 2);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].close, 1.5);
+  assert.equal(out[1].close, 2);
+  assert.equal(out[1].high, 2);
+  assert.equal(out[1].low, 1.4);
+});
+
+test("applyLiveCloseToLatestCandle is no-op without finite liveClose", () => {
+  const candles = [{ open: 1, high: 2, low: 1, close: 1.5, volume: 1 }];
+  assert.equal(applyLiveCloseToLatestCandle(candles, null), candles);
+  assert.equal(applyLiveCloseToLatestCandle(candles, NaN), candles);
 });

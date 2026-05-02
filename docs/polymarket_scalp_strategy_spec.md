@@ -84,7 +84,7 @@ O contrato esperado por `src/engines/scalpForce.js` e:
 
 Nao ha pesos numericos no Scalp Force. A logica e booleana: todos os sinais exigidos precisam concordar.
 
-Importante: no entrypoint ativo `src/serverScalp.js`, o objeto `simSignals` enviado ao motor contem objetos brutos (`heikenAshi`, `obv`, `delta`, etc.), mas nao monta as chaves string `"Heiken+OBV"`, `"5+ Agree"` e `"Delta 3m"`. Assim, pela implementacao ativa, `strengthAgrees()` tende a falhar e bloquear entrada. No `src/server.js` legado existe a montagem dessas chaves, mas esse nao e o entrypoint operacional default atual.
+O `simSignals` passado ao motor inclui as chaves string de direcao (`TA Predict`, `Heiken Ashi`, `MACD`, `Delta 3m`, `Bollinger`, `OBV`, `Full Consensus`, `Heiken+OBV`, `5+ Agree`) via `buildSimSignalDirectionStrings()` em `src/engines/simSignalStrings.js`, mescladas com os objetos crus no `src/serverScalp.js` e no `src/server.js`.
 
 ### 3.3 Banda de entrada
 

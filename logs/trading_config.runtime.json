@@ -1,99 +1,14 @@
 {
   "version": 1,
-  "savedAt": "2026-04-28T23:25:36.370Z",
+  "operationalMode": "scalp_only_phase_1",
+  "savedAt": "2026-05-02T04:27:35.706Z",
   "enabledIndicators5m": [
-    "Full Consensus",
-    "Heiken+OBV",
-    "5+ Agree",
-    "TA Predict",
-    "Heiken Ashi",
-    "OBV",
-    "MACD",
-    "Delta 3m",
-    "Bollinger",
-    "Consensus Edge",
-    "Top3 5m",
-    "Delta 3m Fade 5m",
     "Scalp Force 5m"
   ],
   "enabledIndicators15m": [
     "Scalp Force 15m"
   ],
-  "stakesPerIndicator": {
-    "Full Consensus": 5,
-    "Heiken+OBV": 5,
-    "5+ Agree": 5,
-    "TA Predict": 5,
-    "Heiken Ashi": 5,
-    "OBV": 5,
-    "MACD": 5,
-    "Delta 3m": 5,
-    "Bollinger": 5,
-    "Consensus Edge": 5,
-    "Top3 15m": 1,
-    "Top3 5m": 1,
-    "Delta 3m Fade 5m": 5,
-    "Delta 3m Fade 15m": 5,
-    "Scalp Force 5m": 5,
-    "Scalp Force 15m": 5
-  },
   "indicatorConfigs": {
-    "Full Consensus": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "Heiken+OBV": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "5+ Agree": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "TA Predict": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "Heiken Ashi": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "OBV": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "MACD": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "Delta 3m": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "Bollinger": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "Consensus Edge": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "Top3 15m": {
-      "stakeUsd": 1,
-      "liveMode": false
-    },
-    "Top3 5m": {
-      "stakeUsd": 1,
-      "liveMode": false
-    },
-    "Delta 3m Fade 5m": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
-    "Delta 3m Fade 15m": {
-      "stakeUsd": 5,
-      "liveMode": false
-    },
     "Scalp Force 5m": {
       "stakeUsd": 5,
       "entryMinPct": 51,

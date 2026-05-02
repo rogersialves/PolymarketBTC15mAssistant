@@ -29,7 +29,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CONFIG, WINDOW_PRESETS, applyWindowPreset } from "./config.js";
-import { fetchKlines, fetchLastPrice } from "./data/binance.js";
+import { applyLiveCloseToLatestCandle, fetchKlines, fetchLastPrice, primeBinanceFeedHosts } from "./data/binance.js";
+import { buildFeedSourcesSnapshot } from "./data/feedSources.js";
 import { fetchChainlinkBtcUsd, getCachedPtbForSlug, ensurePtbForSlug } from "./data/chainlink.js";
 import { startChainlinkPriceStream } from "./data/chainlinkWs.js";
 import { startPolymarketChainlinkPriceStream } from "./data/polymarketLiveWs.js";
@@ -64,6 +65,7 @@ import {
   computeExchangeMedian,
   SCALP_CSV_HEADER
 } from "./engines/scalpForce.js";
+import { buildSimSignalDirectionStrings } from "./engines/simSignalStrings.js";
 import { getExchangeTickers } from "./data/exchanges.js";
 import { scoreDirection, applyTimeAwareness } from "./engines/probability.js";
 import { computeEdge, decide } from "./engines/edge.js";
@@ -79,6 +81,7 @@ import { isPostgresEnabled } from "./storage/db.js";
 import { buildTradeHistoryAnalysis } from "./storage/tradeHistoryAnalysis.js";
 import { ensureTradeHistorySchema, listTradeHistoryRecords, listTradeHistoryForAnalysis, upsertTradeHistoryRecords } from "./storage/tradeHistoryStore.js";
 import { ensureRuntimeEventSchema, insertRuntimeEvent } from "./storage/runtimeEventStore.js";
+import { mergeRuntimeScalpTradesIntoWallet } from "./scalp/mergeRuntimeScalpTradesIntoWallet.js";
 
 applyGlobalProxyFromEnv();
 
@@ -1305,15 +1308,17 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       })
     ]);
 
+    const candles1mLive = applyLiveCloseToLatestCandle(candles1m, binanceLastPrice);
+
     // Settlement timing
     const settlementMs = polymarketData.ok && polymarketData.market?.endDate ? new Date(polymarketData.market.endDate).getTime() : null;
     const settlementMinutesLeft = settlementMs ? (settlementMs - Date.now()) / 60_000 : null;
     const minutesLeft = settlementMinutesLeft ?? candleTiming.remainingMinutes;
 
-    // Indicators (shared computation from same Binance candles)
-    const closePrices = candles1m.map(c => c.close);
-    const sessionVwap = computeSessionVwap(candles1m);
-    const vwapSeries = computeVwapSeries(candles1m);
+    // Indicators (último 1m alinhado ao last price — evita série “congelada” entre polls de klines)
+    const closePrices = candles1mLive.map(c => c.close);
+    const sessionVwap = computeSessionVwap(candles1mLive);
+    const vwapSeries = computeVwapSeries(candles1mLive);
     const currentVwap = vwapSeries[vwapSeries.length - 1];
     const slopeLookback = tfConfig.vwapSlopeLookbackMinutes;
     const vwapSlope = vwapSeries.length >= slopeLookback ? (currentVwap - vwapSeries[vwapSeries.length - slopeLookback]) / slopeLookback : null;
@@ -1322,16 +1327,16 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     const rsiSeries = computeRsiSeries(closePrices, CONFIG.rsiPeriod).filter(v => v !== null);
     const rsiSlope = slopeLast(rsiSeries, 3);
     const macdResult = computeMacd(closePrices, CONFIG.macdFast, CONFIG.macdSlow, CONFIG.macdSignal);
-    const heikenAshiCandles = computeHeikenAshi(candles1m);
+    const heikenAshiCandles = computeHeikenAshi(candles1mLive);
     const heikenAshiStreak = countConsecutive(heikenAshiCandles);
     const bollingerResult = computeBollingerBands(closePrices, CONFIG.bollingerPeriod, CONFIG.bollingerStdDev);
     const stochRsiResult = computeStochasticRsi(closePrices, CONFIG.stochRsiPeriod, CONFIG.stochRsiPeriod, CONFIG.stochRsiSmooth, CONFIG.stochRsiSmooth);
     const emaCrossResult = computeEmaCross(closePrices, CONFIG.emaFast, CONFIG.emaSlow);
-    const obvResult = computeObv(candles1m, CONFIG.obvSlopeLookback);
-    const atrResult = computeAtr(candles1m, CONFIG.atrPeriod);
+    const obvResult = computeObv(candles1mLive, CONFIG.obvSlopeLookback);
+    const atrResult = computeAtr(candles1mLive, CONFIG.atrPeriod);
     const vwapCrossCount = countVwapCrosses(closePrices, vwapSeries, 20);
-    const recentVolume = candles1m.slice(-20).reduce((s, c) => s + c.volume, 0);
-    const averageVolume = candles1m.slice(-120).reduce((s, c) => s + c.volume, 0) / 6;
+    const recentVolume = candles1mLive.slice(-20).reduce((s, c) => s + c.volume, 0);
+    const averageVolume = candles1mLive.slice(-120).reduce((s, c) => s + c.volume, 0) / 6;
     const failedVwapReclaim = currentVwap !== null && vwapSeries.length >= 3
       ? closePrices[closePrices.length - 1] < currentVwap && closePrices[closePrices.length - 2] > vwapSeries[vwapSeries.length - 2]
       : false;
@@ -1357,10 +1362,10 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     // Derived labels
     const vwapSlopeLabel = vwapSlope === null ? "-" : vwapSlope > 0 ? "UP" : vwapSlope < 0 ? "DOWN" : "FLAT";
     const macdLabel = macdResult === null ? "-" : macdResult.hist < 0 ? (macdResult.histDelta !== null && macdResult.histDelta < 0 ? "bearish (expanding)" : "bearish") : (macdResult.histDelta !== null && macdResult.histDelta > 0 ? "bullish (expanding)" : "bullish");
-    const latestCandle = candles1m.length ? candles1m[candles1m.length - 1] : null;
+    const latestCandle = candles1mLive.length ? candles1mLive[candles1mLive.length - 1] : null;
     const latestClose = latestCandle?.close ?? null;
-    const closePrev1m = candles1m.length >= 2 ? candles1m[candles1m.length - 2]?.close ?? null : null;
-    const closePrev3m = candles1m.length >= 4 ? candles1m[candles1m.length - 4]?.close ?? null : null;
+    const closePrev1m = candles1mLive.length >= 2 ? candles1mLive[candles1mLive.length - 2]?.close ?? null : null;
+    const closePrev3m = candles1mLive.length >= 4 ? candles1mLive[candles1mLive.length - 4]?.close ?? null : null;
     const delta1m = latestClose !== null && closePrev1m !== null ? latestClose - closePrev1m : null;
     const delta3m = latestClose !== null && closePrev3m !== null ? latestClose - closePrev3m : null;
     const signalLabel = decision.action === "ENTER" ? (decision.side === "UP" ? "BUY UP" : "BUY DOWN") : "NO TRADE";
@@ -1425,35 +1430,17 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
         : tradingConfig.enabledIndicators15m.has(n);
     });
 
-    const simSignals = {};
-    // Base
-    if (timeAdjustedProb?.adjustedUp != null && timeAdjustedProb?.adjustedDown != null) {
-      simSignals["TA Predict"] = timeAdjustedProb.adjustedUp > timeAdjustedProb.adjustedDown ? "UP" : "DOWN";
-    }
-    if (heikenAshiStreak?.color === "green") simSignals["Heiken Ashi"] = "UP";
-    else if (heikenAshiStreak?.color === "red") simSignals["Heiken Ashi"] = "DOWN";
-    if (macdLabel.includes("bullish")) simSignals["MACD"] = "UP";
-    else if (macdLabel.includes("bearish")) simSignals["MACD"] = "DOWN";
-    if (delta3m !== null && delta3m !== 0) simSignals["Delta 3m"] = delta3m > 0 ? "UP" : "DOWN";
-    if (bollingerResult?.percentB != null) simSignals["Bollinger"] = bollingerResult.percentB > 0.5 ? "UP" : "DOWN";
-    if (obvResult?.slope != null && obvResult.slope !== 0) simSignals["OBV"] = obvResult.slope > 0 ? "UP" : "DOWN";
-    // Combos
-    if (currentRsi > 55 && macdLabel.includes("bullish") && heikenAshiStreak?.color === "green" && obvResult?.slope > 0) {
-      simSignals["Full Consensus"] = "UP";
-    } else if (currentRsi < 45 && macdLabel.includes("bearish") && heikenAshiStreak?.color === "red" && obvResult?.slope < 0) {
-      simSignals["Full Consensus"] = "DOWN";
-    }
-    if (heikenAshiStreak?.color === "green" && obvResult?.slope > 0) simSignals["Heiken+OBV"] = "UP";
-    else if (heikenAshiStreak?.color === "red" && obvResult?.slope < 0) simSignals["Heiken+OBV"] = "DOWN";
-    { // 5+ Agree (uses all base indicators for counting, but only appears if 5+ align)
-      const baseForCount = { "Heiken Ashi": simSignals["Heiken Ashi"], "RSI": currentRsi > 50 ? "UP" : currentRsi < 50 ? "DOWN" : null,
-        "MACD": simSignals["MACD"], "EMA": emaCrossLabel.includes("bullish") || emaCrossLabel.includes("CROSS ↑") ? "UP" : emaCrossLabel.includes("bearish") || emaCrossLabel.includes("CROSS ↓") ? "DOWN" : null,
-        "OBV": simSignals["OBV"], "VWAP": vwapDistance > 0 ? "UP" : vwapDistance < 0 ? "DOWN" : null, "Delta": simSignals["Delta 3m"] };
-      let sUp = 0, sDn = 0;
-      for (const v of Object.values(baseForCount)) { if (v === "UP") sUp++; if (v === "DOWN") sDn++; }
-      if (sUp >= 5) simSignals["5+ Agree"] = "UP";
-      else if (sDn >= 5) simSignals["5+ Agree"] = "DOWN";
-    }
+    const simSignals = buildSimSignalDirectionStrings({
+      timeAdjustedProb,
+      heikenAshiStreak,
+      macdLabel,
+      delta3m,
+      bollingerResult,
+      obvResult,
+      currentRsi,
+      emaCrossLabel,
+      vwapDistance
+    });
 
     // Top3 15m — entrada apenas quando Delta 3m + Heiken Ashi + OBV concordam
     if (simSignals["Delta 3m"] && simSignals["Heiken Ashi"] && simSignals["OBV"] &&
@@ -2010,6 +1997,12 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
           kraken: { price: exchanges.kraken.price, volume: exchanges.kraken.volume }
         },
         oracle: { lagMs: oracleLagMs, binanceVsOracle, spreadPct: oracleSpreadPct },
+        feedSources: buildFeedSourcesSnapshot({
+          now: Date.now(),
+          chainlinkData,
+          polymarketCurrentFresh,
+          polymarketPriceAgeMs: polymarketLiveAgeMs
+        }),
         session: { time: formatEasternTime(), name: getBtcSession() },
         signal: signalLabel,
         regime: regimeInfo.regime,
@@ -2320,7 +2313,10 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
       const modeKey = filterMode || "*";
       if (analysisByMode.has(modeKey)) return analysisByMode.get(modeKey);
       return await refreshAnalysisCache(filterMode);
-    }
+    },
+    scalpWallet,
+    scalpIndicatorName,
+    scalpCumulative
   };
 }
 
@@ -2356,6 +2352,20 @@ async function main() {
   // Create engines for both timeframes
   const engine5m = createTimeframeEngine(5, sharedStreams);
   const engine15m = createTimeframeEngine(15, sharedStreams);
+
+  if (isPostgresEnabled()) {
+    const n5 = await mergeRuntimeScalpTradesIntoWallet(
+      engine5m.scalpWallet, engine5m.scalpIndicatorName, applyScalpTradeToWallet
+    );
+    const n15 = await mergeRuntimeScalpTradesIntoWallet(
+      engine15m.scalpWallet, engine15m.scalpIndicatorName, applyScalpTradeToWallet
+    );
+    engine5m.scalpCumulative[engine5m.scalpIndicatorName] = engine5m.scalpWallet.balance;
+    engine15m.scalpCumulative[engine15m.scalpIndicatorName] = engine15m.scalpWallet.balance;
+    if (n5 + n15 > 0) {
+      console.log(`✅ Carteira Scalp: ${n5} trade(s) 5m + ${n15} trade(s) 15m mesclados do Postgres (runtime_events).`);
+    }
+  }
 
   // API endpoint for manual analysis
   app.get("/api/analysis/:tf", async (req, res) => {
@@ -2779,6 +2789,9 @@ async function main() {
   server.listen(PORT, () => {
     console.log(`✅ Dashboard: http://localhost:${PORT}`);
     console.log(`   Collecting data for 5m and 15m simultaneously\n`);
+    primeBinanceFeedHosts().catch((e) => {
+      console.warn(`⚠️  Binance feed prime (ignorado): ${e?.message || e}`);
+    });
   });
 
   // Rotate old log files on startup and every 24 hours

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="dry.css">
+  <link rel="stylesheet" href="dry.css?v=20260502-ptb-stream-open">
 </head>
 <body>
   <!-- ── Top Navigation ── -->
@@ -88,9 +88,10 @@
           <div id="dryScalpStrip" class="dry-scalp-strip">
             <span class="dim">Nenhuma operação scalp registrada ainda...</span>
           </div>
-          <div id="dryLastResolved" class="dry-last-resolved dry-last-resolved-compact">
-            <span class="dim">Aguardando resolução hold-to-expiry...</span>
+          <div id="dryScalpMarketFooter" class="dry-last-resolved dry-last-resolved-compact">
+            <span class="dim">Últimos mercados Scalp (por TF) aparecem aqui após o primeiro tick.</span>
           </div>
+          <div id="dryLastResolved" class="dry-last-resolved dry-last-resolved-legacy" hidden></div>
         </div>
       </section>
 
@@ -132,7 +133,7 @@
           <div class="ind-body-row">
             <div class="indicators-grid" id="dryIndicatorsGrid">
               <div class="ind-row" title="Consenso (>55% bias claro)"><span class="ind-label">TA Predict</span><span class="ind-value" id="dval-taPredict">—</span></div>
-              <div class="ind-row" title="Tendência (verde=alta, red=baixa)"><span class="ind-label">Heiken Ashi</span><span class="ind-value" id="dval-heiken">—</span></div>
+              <div class="ind-row" title="Heiken Ashi em candles 1m da Binance (não é o gráfico 5m do TradingView). Troca de mercado Polymarket não reinicia esta série — é o mesmo BTC."><span class="ind-label">Heiken Ashi (1m)</span><span class="ind-value" id="dval-heiken">—</span></div>
               <div class="ind-row" title="Momentum (>70 OB, <30 OS)"><span class="ind-label">RSI</span><span class="ind-value" id="dval-rsi">—</span></div>
               <div class="ind-row" title="Direção/Força"><span class="ind-label">MACD</span><span class="ind-value" id="dval-macd">—</span></div>
               <div class="ind-row" title="Agressão micro (delta 1m e 3m)"><span class="ind-label">Delta 1/3</span><span class="ind-value" id="dval-delta">—</span></div>
@@ -154,6 +155,7 @@
               </div>
               <div class="poly-row"><span class="label">Liquidity</span><span class="value" id="dpolyLiquidity">—</span></div>
               <div class="poly-row"><span class="label">Price to Beat</span><span class="value" id="dpriceToBeat">—</span></div>
+              <div id="dryPtbCompare" class="dry-ptb-compare" aria-label="Comparativo de fontes PTB"></div>
               <div class="poly-row"><span class="label">Current Price</span><span class="value" id="dcurrentPrice">—</span></div>
             </div>
 
@@ -168,6 +170,14 @@
                 <span class="label">Spread</span><span class="value" id="doracleSpread">—</span>
                 <span class="label">Bin vs Oracle</span><span class="value" id="dbinVsOracle">—</span>
               </div>
+            </div>
+
+            <div class="ind-vsep"></div>
+
+            <div class="feed-sources-section" title="REST Binance (.com / .us) e oracle Chainlink — fontes da operação">
+              <div class="feed-source-row"><span class="feed-name">Binance.com</span><span class="feed-status" id="dfeedBinanceCom">—</span></div>
+              <div class="feed-source-row"><span class="feed-name">Binance.us</span><span class="feed-status" id="dfeedBinanceUs">—</span></div>
+              <div class="feed-source-row"><span class="feed-name">Chainlink</span><span class="feed-status" id="dfeedChainlink">—</span></div>
             </div>
           </div>
         </section>
@@ -264,6 +274,6 @@
     </div>
   </div>
 
-  <script src="dry.js?v=20260426-token-wallets"></script>
+  <script src="dry.js?v=20260502-live-klines"></script>
 </body>
 </html>

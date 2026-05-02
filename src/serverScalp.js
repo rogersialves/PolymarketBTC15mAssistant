@@ -32,9 +32,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CONFIG, WINDOW_PRESETS, applyWindowPreset } from "./config.js";
-import { fetchKlines, fetchLastPrice } from "./data/binance.js";
+import { applyLiveCloseToLatestCandle, fetchKlines, fetchLastPrice, primeBinanceFeedHosts } from "./data/binance.js";
+import { buildFeedSourcesSnapshot } from "./data/feedSources.js";
 import { startBinanceTradeStream } from "./data/binanceWs.js";
-import { fetchChainlinkBtcUsd } from "./data/chainlink.js";
+import { fetchChainlinkBtcUsd, ensurePtbForSlug, getCachedPtbForSlug } from "./data/chainlink.js";
 import { startChainlinkPriceStream } from "./data/chainlinkWs.js";
 import { startPolymarketChainlinkPriceStream } from "./data/polymarketLiveWs.js";
 import {
@@ -42,7 +43,12 @@ import {
   flattenEventMarkets,
   pickLatestLiveMarket,
   fetchClobPrice,
-  priceToBeatFromMarketWithSource
+  priceToBeatFromMarketWithSource,
+  ensureEventPagePtb,
+  getCachedEventPagePtb,
+  parsePriceToBeatFromText,
+  extractNumericFromMarket,
+  isBtcUpDownWindowSlug
 } from "./data/polymarket.js";
 import { getExchangeTickers } from "./data/exchanges.js";
 
@@ -68,6 +74,7 @@ import {
   computeExchangeMedian,
   SCALP_CSV_HEADER
 } from "./engines/scalpForce.js";
+import { buildSimSignalDirectionStrings } from "./engines/simSignalStrings.js";
 
 import { PolyTrader } from "./polyTrader.js";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
@@ -79,6 +86,7 @@ import {
 } from "./utils.js";
 import { isPostgresEnabled } from "./storage/db.js";
 import { ensureRuntimeEventSchema, insertRuntimeEvent } from "./storage/runtimeEventStore.js";
+import { mergeRuntimeScalpTradesIntoWallet } from "./scalp/mergeRuntimeScalpTradesIntoWallet.js";
 import { ensureTradeHistorySchema } from "./storage/tradeHistoryStore.js";
 
 applyGlobalProxyFromEnv();
@@ -631,6 +639,8 @@ function createPolymarketResolver(preset, tfLabel) {
 // ────────────────────────────────────────────────────────
 
 const CHAINLINK_STEP_TIMEOUT_MS = Number(process.env.CHAINLINK_STEP_TIMEOUT_MS || 3_500);
+/** Após troca de slug: não usar latch Chainlink ao vivo nem heurística Gamma "walk" (evita PTB errado nos primeiros ticks). */
+const SCALP_PTB_WARMUP_MS = Number(process.env.SCALP_PTB_WARMUP_MS || 10_000);
 
 function createScalpEngine(windowMinutes, sharedStreams) {
   const preset = WINDOW_PRESETS[windowMinutes];
@@ -639,6 +649,9 @@ function createScalpEngine(windowMinutes, sharedStreams) {
 
   let previousChainlinkPrice = null;
   let scalpPtbFallbackState = { slug: null, value: null };
+  /** Primeiro preço do WS Polymarket (Chainlink) com updatedAt ≥ abertura da janela — alinha ao site vs agregador on-chain. */
+  let scalpPtbStreamOpen = { slug: null, value: null };
+  let scalpPtbWarmup = { slug: null, startedAtMs: 0 };
 
   const scalpIndicatorName = windowMinutes === 15 ? SCALP_15M : SCALP_5M;
   const scalpRuntime = createScalpRuntime(scalpIndicatorName, windowMinutes);
@@ -759,16 +772,18 @@ function createScalpEngine(windowMinutes, sharedStreams) {
         })
       ]);
 
+      const candles1mLive = applyLiveCloseToLatestCandle(candles1m, binanceLastPrice);
+
       // Settlement / candle timing
       const settlementMs = polymarketData.ok && polymarketData.market?.endDate
         ? new Date(polymarketData.market.endDate).getTime() : null;
       const settlementMinutesLeft = settlementMs ? (settlementMs - Date.now()) / 60_000 : null;
       const minutesLeft = settlementMinutesLeft ?? candleTiming.remainingMinutes;
 
-      // Indicators
-      const closePrices = candles1m.map(c => c.close);
-      const sessionVwap = computeSessionVwap(candles1m);
-      const vwapSeries = computeVwapSeries(candles1m);
+      // Indicators (último candle 1m alinhado ao last price REST/WS — evita “congelado” entre polls de klines)
+      const closePrices = candles1mLive.map(c => c.close);
+      const sessionVwap = computeSessionVwap(candles1mLive);
+      const vwapSeries = computeVwapSeries(candles1mLive);
       const currentVwap = vwapSeries[vwapSeries.length - 1];
       const slopeLookback = tfConfig.vwapSlopeLookbackMinutes;
       const vwapSlope = vwapSeries.length >= slopeLookback
@@ -778,16 +793,16 @@ function createScalpEngine(windowMinutes, sharedStreams) {
       const rsiSeries = computeRsiSeries(closePrices, CONFIG.rsiPeriod).filter(v => v !== null);
       const rsiSlope = slopeLast(rsiSeries, 3);
       const macdResult = computeMacd(closePrices, CONFIG.macdFast, CONFIG.macdSlow, CONFIG.macdSignal);
-      const heikenAshiCandles = computeHeikenAshi(candles1m);
+      const heikenAshiCandles = computeHeikenAshi(candles1mLive);
       const heikenAshiStreak = countConsecutive(heikenAshiCandles);
       const bollingerResult = computeBollingerBands(closePrices, CONFIG.bollingerPeriod, CONFIG.bollingerStdDev);
       const stochRsiResult = computeStochasticRsi(closePrices, CONFIG.stochRsiPeriod, CONFIG.stochRsiPeriod, CONFIG.stochRsiSmooth, CONFIG.stochRsiSmooth);
       const emaCrossResult = computeEmaCross(closePrices, CONFIG.emaFast, CONFIG.emaSlow);
-      const obvResult = computeObv(candles1m, CONFIG.obvSlopeLookback);
-      const atrResult = computeAtr(candles1m, CONFIG.atrPeriod);
+      const obvResult = computeObv(candles1mLive, CONFIG.obvSlopeLookback);
+      const atrResult = computeAtr(candles1mLive, CONFIG.atrPeriod);
       const vwapCrossCount = countVwapCrosses(closePrices, vwapSeries, 20);
-      const recentVolume = candles1m.slice(-20).reduce((s, c) => s + c.volume, 0);
-      const averageVolume = candles1m.slice(-120).reduce((s, c) => s + c.volume, 0) / 6;
+      const recentVolume = candles1mLive.slice(-20).reduce((s, c) => s + c.volume, 0);
+      const averageVolume = candles1mLive.slice(-120).reduce((s, c) => s + c.volume, 0) / 6;
       const failedVwapReclaim = currentVwap !== null && vwapSeries.length >= 3
         ? closePrices[closePrices.length - 1] < currentVwap && closePrices[closePrices.length - 2] > vwapSeries[vwapSeries.length - 2]
         : false;
@@ -816,10 +831,10 @@ function createScalpEngine(windowMinutes, sharedStreams) {
         : macdResult.hist < 0
           ? (macdResult.histDelta !== null && macdResult.histDelta < 0 ? "bearish (expanding)" : "bearish")
           : (macdResult.histDelta !== null && macdResult.histDelta > 0 ? "bullish (expanding)" : "bullish");
-      const latestCandle = candles1m.length ? candles1m[candles1m.length - 1] : null;
+      const latestCandle = candles1mLive.length ? candles1mLive[candles1mLive.length - 1] : null;
       const latestClose = latestCandle?.close ?? null;
-      const closePrev1m = candles1m.length >= 2 ? candles1m[candles1m.length - 2]?.close ?? null : null;
-      const closePrev3m = candles1m.length >= 4 ? candles1m[candles1m.length - 4]?.close ?? null : null;
+      const closePrev1m = candles1mLive.length >= 2 ? candles1mLive[candles1mLive.length - 2]?.close ?? null : null;
+      const closePrev3m = candles1mLive.length >= 4 ? candles1mLive[candles1mLive.length - 4]?.close ?? null : null;
       const delta1m = latestClose !== null && closePrev1m !== null ? latestClose - closePrev1m : null;
       const delta3m = latestClose !== null && closePrev3m !== null ? latestClose - closePrev3m : null;
       const signalLabel = decision.action === "ENTER" ? (decision.side === "UP" ? "BUY UP" : "BUY DOWN") : "NO TRADE";
@@ -830,22 +845,105 @@ function createScalpEngine(windowMinutes, sharedStreams) {
       const marketTitle = polymarketData.ok ? String(polymarketData.market?.title ?? polymarketData.market?.question ?? "") : "";
 
       // ── Price To Beat (PTB) ──
-      // Fase 1: usa só o parsing canônico do título do mercado. Quando não
-      // disponível, latch chainlinkPrice uma vez por slug como referência
-      // estável para o Scalp decidir lado (não usado para resolução de outcome).
+      // Ordem: página Polymarket → [btc-updown] 1º tick do WS Polymarket com horário ≥ abertura
+      // → Chainlink on-chain no timestamp do slug (Polygon; pode divergir $ do stream do site)
+      // → Gamma (title / walk) → latch ao vivo após warmup.
+      // Nos primeiros SCALP_PTB_WARMUP_MS: não usar walk nem latch legacy (mantém stream_open ativo).
+      const ptbNow = Date.now();
+      if (marketSlug) {
+        if (scalpPtbWarmup.slug !== marketSlug) {
+          scalpPtbWarmup = { slug: marketSlug, startedAtMs: ptbNow };
+          scalpPtbFallbackState = { slug: marketSlug, value: null };
+          scalpPtbStreamOpen = { slug: marketSlug, value: null };
+        }
+        ensureEventPagePtb(marketSlug).catch(() => {});
+        ensurePtbForSlug(marketSlug).catch(() => {});
+      }
+
+      const ptbWarmupActive = Boolean(
+        marketSlug
+        && scalpPtbWarmup.slug === marketSlug
+        && (ptbNow - scalpPtbWarmup.startedAtMs) < SCALP_PTB_WARMUP_MS
+      );
+
+      let slugStartUnix = null;
+      if (isBtcUpDownWindowSlug(marketSlug)) {
+        const segs = marketSlug.split("-");
+        const tail = Number(segs[segs.length - 1]);
+        if (Number.isFinite(tail) && tail > 1_000_000_000) slugStartUnix = tail;
+      }
+      if (slugStartUnix !== null
+          && scalpPtbStreamOpen.slug === marketSlug
+          && scalpPtbStreamOpen.value === null
+          && polymarketCurrentFresh
+          && polymarketCurrentPrice !== null) {
+        const utMs = polymarketTick?.updatedAt;
+        const recvAt = polymarketTick?.receivedAt;
+        let acceptStreamOpen = false;
+        if (utMs != null && Number.isFinite(utMs)) {
+          const wsSec = Math.floor(Number(utMs) / 1000);
+          acceptStreamOpen = wsSec >= slugStartUnix;
+        } else if (recvAt != null
+            && recvAt >= scalpPtbWarmup.startedAtMs
+            && ptbNow >= slugStartUnix * 1000) {
+          acceptStreamOpen = true;
+        }
+        if (acceptStreamOpen) scalpPtbStreamOpen.value = polymarketCurrentPrice;
+      }
+
+      const pagePtb = marketSlug ? getCachedEventPagePtb(marketSlug) : null;
+      const chainHistPtb = marketSlug ? getCachedPtbForSlug(marketSlug) : null;
       const ptbResult = polymarketData.ok && polymarketData.market
         ? priceToBeatFromMarketWithSource(polymarketData.market)
         : { value: null, source: null };
-      const officialPtb = ptbResult.value;
 
-      if (marketSlug && scalpPtbFallbackState.slug !== marketSlug) {
-        scalpPtbFallbackState = { slug: marketSlug, value: null };
+      let ptbChosenSource = null;
+      let chosenPtb = null;
+      if (pagePtb !== null && Number.isFinite(pagePtb)) {
+        chosenPtb = pagePtb;
+        ptbChosenSource = "event_page";
+      } else if (isBtcUpDownWindowSlug(marketSlug)
+          && scalpPtbStreamOpen.value !== null
+          && Number.isFinite(scalpPtbStreamOpen.value)) {
+        chosenPtb = scalpPtbStreamOpen.value;
+        ptbChosenSource = "chainlink_stream_open";
+      } else if (chainHistPtb !== null && Number.isFinite(chainHistPtb)) {
+        chosenPtb = chainHistPtb;
+        ptbChosenSource = "chainlink_window";
+      } else if (ptbResult.source === "title" && ptbResult.value !== null) {
+        chosenPtb = ptbResult.value;
+        ptbChosenSource = "gamma_title";
+      } else if (!ptbWarmupActive && ptbResult.source === "walk" && ptbResult.value !== null) {
+        chosenPtb = ptbResult.value;
+        ptbChosenSource = "gamma_walk";
       }
-      if (scalpPtbFallbackState.slug && scalpPtbFallbackState.value === null && chainlinkPrice !== null) {
+
+      if (!ptbWarmupActive && scalpPtbFallbackState.slug === marketSlug && scalpPtbFallbackState.value === null && chainlinkPrice !== null) {
         scalpPtbFallbackState.value = chainlinkPrice;
       }
-      const priceToBeatForScalp = officialPtb
-        ?? (scalpPtbFallbackState.slug === marketSlug ? scalpPtbFallbackState.value : null);
+      const latchedPtb = scalpPtbFallbackState.slug === marketSlug ? scalpPtbFallbackState.value : null;
+      const priceToBeatForScalp = chosenPtb ?? (!ptbWarmupActive ? latchedPtb : null);
+      if (priceToBeatForScalp !== null && ptbChosenSource === null && latchedPtb !== null && priceToBeatForScalp === latchedPtb) {
+        ptbChosenSource = "chainlink_live_latch";
+      }
+
+      const ptbCandidates = {
+        event_page: pagePtb,
+        chainlink_stream_open: scalpPtbStreamOpen.value,
+        chainlink_window: chainHistPtb,
+        gamma_title: polymarketData.ok && polymarketData.market
+          ? parsePriceToBeatFromText(polymarketData.market)
+          : null,
+        gamma_walk: polymarketData.ok && polymarketData.market
+          ? extractNumericFromMarket(polymarketData.market)
+          : null,
+        chainlink_live_latch: latchedPtb,
+        chainlink_live_now: chainlinkPrice
+      };
+
+      const ptbCompareFootnote = isBtcUpDownWindowSlug(marketSlug)
+        ? "Nesta série (slug btc-updown-5m/15m), a API Gamma não inclui priceToBeat no mercado e o título só tem o intervalo de tempo. O _next/data da página também não traz priceToBeat para a janela ativa. O PTB do site segue o Chainlink via stream Polymarket: usamos o primeiro tick do WS com horário ≥ abertura (stream abertura). A linha «Chainlink (timestamp do slug)» é o agregador on-chain na Polygon — pode afastar-se alguns dólares do stream."
+        : null;
 
       // Exchange median (usado pelo Scalp para direção)
       const exchanges = getExchangeTickers();
@@ -882,7 +980,19 @@ function createScalpEngine(windowMinutes, sharedStreams) {
       const scalpEnabled = isScalpEnabled(scalpIndicatorName);
       const scalpStatusBefore = scalpRuntime.status;
 
+      const simSignalDirections = buildSimSignalDirectionStrings({
+        timeAdjustedProb,
+        heikenAshiStreak,
+        macdLabel,
+        delta3m,
+        bollingerResult,
+        obvResult,
+        currentRsi,
+        emaCrossLabel,
+        vwapDistance
+      });
       const simSignals = {
+        ...simSignalDirections,
         decision,
         directionScore,
         timeAdjustedProb,
@@ -1070,6 +1180,13 @@ function createScalpEngine(windowMinutes, sharedStreams) {
             priceFetchedAt: polymarketData.ok ? polymarketData.priceFetchedAt : null,
             liquidity: liquidityAmount,
             priceToBeat: priceToBeatForScalp,
+            ptbSource: ptbChosenSource,
+            ptbCandidates,
+            ptbCompareFootnote,
+            ptbWarmupActive: ptbWarmupActive,
+            ptbWarmupMsRemaining: ptbWarmupActive && marketSlug
+              ? Math.max(0, SCALP_PTB_WARMUP_MS - (ptbNow - scalpPtbWarmup.startedAtMs))
+              : 0,
             currentPrice: polymarketCurrentPrice,
             priceDelta: priceToBeatDelta,
             currentPriceFresh: polymarketCurrentFresh,
@@ -1082,6 +1199,12 @@ function createScalpEngine(windowMinutes, sharedStreams) {
             kraken: { price: exchanges.kraken.price, volume: exchanges.kraken.volume }
           },
           oracle: { lagMs: oracleLagMs, binanceVsOracle, spreadPct: oracleSpreadPct },
+          feedSources: buildFeedSourcesSnapshot({
+            now: Date.now(),
+            chainlinkData,
+            polymarketCurrentFresh,
+            polymarketPriceAgeMs: polymarketLiveAgeMs
+          }),
           session: { time: formatEasternTime(), name: getBtcSession() },
           signal: signalLabel,
           regime: regimeInfo.regime,
@@ -1113,7 +1236,7 @@ function createScalpEngine(windowMinutes, sharedStreams) {
     }
   }
 
-  return { tick, scalpRuntime, scalpWallet, scalpIndicatorName };
+  return { tick, scalpRuntime, scalpWallet, scalpIndicatorName, scalpCumulative };
 }
 
 // ────────────────────────────────────────────────────────
@@ -1287,6 +1410,20 @@ async function main() {
   const engine5m = createScalpEngine(5, sharedStreams);
   const engine15m = createScalpEngine(15, sharedStreams);
 
+  if (isPostgresEnabled()) {
+    const n5 = await mergeRuntimeScalpTradesIntoWallet(
+      engine5m.scalpWallet, engine5m.scalpIndicatorName, applyScalpTradeToWallet
+    );
+    const n15 = await mergeRuntimeScalpTradesIntoWallet(
+      engine15m.scalpWallet, engine15m.scalpIndicatorName, applyScalpTradeToWallet
+    );
+    engine5m.scalpCumulative[engine5m.scalpIndicatorName] = engine5m.scalpWallet.balance;
+    engine15m.scalpCumulative[engine15m.scalpIndicatorName] = engine15m.scalpWallet.balance;
+    if (n5 + n15 > 0) {
+      console.log(`✅ Carteira Scalp: ${n5} trade(s) 5m + ${n15} trade(s) 15m mesclados do Postgres (runtime_events).`);
+    }
+  }
+
   // GET /api/scalp/wallet — estado in-memory dos dois Scalps (sem hit Postgres)
   app.get("/api/scalp/wallet", (req, res) => {
     res.json({
@@ -1311,6 +1448,9 @@ async function main() {
   server.listen(PORT, () => {
     console.log(`✅ Dashboard: http://localhost:${PORT}`);
     console.log(`   Modo: Scalp-Only (5m + 15m) — DRY/LIVE configurável\n`);
+    primeBinanceFeedHosts().catch((e) => {
+      console.warn(`⚠️  Binance feed prime (ignorado): ${e?.message || e}`);
+    });
   });
 
   // Log rotation

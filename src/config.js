@@ -46,7 +46,8 @@ export const CONFIG = {
   binanceRefreshRetryMs: Number(process.env.BINANCE_REFRESH_RETRY_MS || 15_000),
   polymarketSnapshotClobBudgetMs: Number(process.env.POLYMARKET_SNAPSHOT_CLOB_BUDGET_MS || 1_500),
   polymarketResolveCacheMs: Number(process.env.POLYMARKET_RESOLVE_CACHE_MS || 15_000),
-  binanceKlinesCacheMs: Number(process.env.BINANCE_KLINES_CACHE_MS || 10_000),
+  // Menor = klines 1m mais frescos (indicadores Scalp); maior = menos pedidos REST à Binance.
+  binanceKlinesCacheMs: Number(process.env.BINANCE_KLINES_CACHE_MS || 2_000),
   binanceLastPriceCacheMs: Number(process.env.BINANCE_LAST_PRICE_CACHE_MS || 2_000),
   exchangeTickerCacheMs: Number(process.env.EXCHANGE_TICKER_CACHE_MS || 10_000),
   candleWindowMinutes: 5,

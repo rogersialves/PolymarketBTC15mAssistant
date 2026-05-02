@@ -112,3 +112,20 @@ export async function countRuntimeEvents(eventType = null) {
   const result = await query(`SELECT count(*)::int AS count FROM runtime_events`);
   return result.rows[0]?.count || 0;
 }
+
+/** Closed scalp trades persisted while Postgres is on (raw = CSV column object). */
+export async function listScalpTradeRuntimeEventsForIndicator(indicatorName) {
+  await ensureRuntimeEventSchema();
+  const name = String(indicatorName || "");
+  if (!name) return [];
+  const result = await query(`
+    SELECT id, timestamp, raw
+    FROM runtime_events
+    WHERE event_type = 'scalp_trade'
+      AND (raw->>'indicator') = $1
+    ORDER BY
+      COALESCE(NULLIF(trim(raw->>'exit_time'), '')::timestamptz, timestamp) ASC,
+      id ASC
+  `, [name]);
+  return result.rows || [];
+}

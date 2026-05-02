@@ -83,6 +83,44 @@ function colorClass(value) {
   return Number(value) > 0 ? "color-up" : Number(value) < 0 ? "color-down" : "color-dim";
 }
 
+const FEED_STATUS_LABELS = {
+  ok: "OK",
+  down: "FORA",
+  stale: "VELHO",
+  unknown: "—",
+  misconfigured: "SEM RPC",
+  degraded: "LENTO"
+};
+
+function feedStatusLabel(status) {
+  return FEED_STATUS_LABELS[status] || String(status || "—").toUpperCase();
+}
+
+function feedStatusClass(status) {
+  if (status === "ok") return "color-up";
+  if (status === "down" || status === "misconfigured") return "color-down";
+  if (status === "stale" || status === "degraded") return "color-warn";
+  return "color-dim";
+}
+
+function renderFeedSourceRow(elId, entry) {
+  const el = document.getElementById(elId);
+  if (!el || !entry) return;
+  const detail = entry.detail ? String(entry.detail) : "";
+  const bits = [];
+  bits.push(feedStatusLabel(entry.status));
+  if (entry.source) bits.push(String(entry.source));
+  if (entry.ageMs != null && Number.isFinite(Number(entry.ageMs))) {
+    bits.push(`${(Number(entry.ageMs) / 1000).toFixed(0)}s`);
+  } else if (entry.latencyMs != null && Number.isFinite(Number(entry.latencyMs))) {
+    bits.push(`${Math.round(Number(entry.latencyMs))}ms`);
+  }
+  const line = bits.join(" · ");
+  el.textContent = line;
+  el.className = `feed-status ${feedStatusClass(entry.status)}`;
+  el.title = detail ? `${detail}\n${line}` : line;
+}
+
 function shortToken(token) {
   const s = String(token || "");
   if (!s) return "—";
@@ -310,9 +348,67 @@ function renderAll(d) {
   // Simulation data
   if (d.simulation) {
     renderUnifiedGrid(d.simulation);
-    renderLastResolved(d.simulation.lastResolved);
+    if (d.simulation.lastResolved) {
+      renderLastResolved(d.simulation.lastResolved);
+    }
     renderCeStatus(d.simulation.ceStatus);
   }
+}
+
+const PTB_PRICE_DECIMALS = 2;
+
+const PTB_COMPARE_ROWS = [
+  { key: "event_page", label: "Página / _next/data" },
+  { key: "chainlink_stream_open", label: "Stream Polymarket (≥ abertura)" },
+  { key: "chainlink_window", label: "Chainlink on-chain Polygon (slug)" },
+  { key: "gamma_title", label: "Gamma · título (parse)" },
+  { key: "gamma_walk", label: "Gamma · walk (heurística)" },
+  { key: "chainlink_live_latch", label: "Latch pós-warmup (legado)" },
+  { key: "chainlink_live_now", label: "Chainlink stream (agora)" }
+];
+
+function fmtPtbCandidate(v) {
+  if (v === null || v === undefined) return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `$${fmt(n, PTB_PRICE_DECIMALS)}`;
+}
+
+/** Painel comparativo: mesmas chaves que `ptbSource` no payload do Scalp. */
+function renderPtbComparePanel(poly) {
+  const el = document.getElementById("dryPtbCompare");
+  if (!el) return;
+  const c = poly.ptbCandidates;
+  if (!c || typeof c !== "object") {
+    el.innerHTML = "";
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const chosenKey = String(poly.ptbSource || "");
+  const warmup = poly.ptbWarmupActive === true;
+  const msLeft = Number(poly.ptbWarmupMsRemaining) || 0;
+  const warmLine = warmup
+    ? `<div class="dry-ptb-warmup">Warmup: walk + latch ao vivo off · ~${Math.ceil(msLeft / 1000)}s</div>`
+    : "";
+
+  const body = PTB_COMPARE_ROWS.map(({ key, label }) => {
+    const val = c[key];
+    const active = Boolean(chosenKey && chosenKey === key);
+    const cls = active ? "dry-ptb-row dry-ptb-row--active" : "dry-ptb-row";
+    return `<div class="${cls}" data-ptb-source="${escapeAttr(key)}"><span class="dry-ptb-label">${escapeAttr(label)}</span><span class="dry-ptb-val">${fmtPtbCandidate(val)}</span></div>`;
+  }).join("");
+
+  const foot = poly.ptbCompareFootnote
+    ? `<div class="dry-ptb-footnote">${escapeAttr(poly.ptbCompareFootnote)}</div>`
+    : "";
+
+  el.innerHTML = `
+    <div class="dry-ptb-compare-head">Comparar PTB <span class="dry-ptb-picked">motor: <code>${escapeAttr(chosenKey || "—")}</code></span></div>
+    ${warmLine}
+    <div class="dry-ptb-grid">${body}</div>
+    ${foot}
+  `;
 }
 
 // ── Dashboard Indicators (mirrors main dashboard panel) ──
@@ -374,8 +470,8 @@ function renderDashIndicators(d) {
       setHTML("dval-bollinger", `${pctBVal} (%B) | BW ${bwVal}%${sqz}`);
     }
     if (ind.stochRsi) {
-      const kVal = ind.stochRsi.k !== null ? Math.round(ind.stochRsi.k) : "—";
-      const dVal = ind.stochRsi.d !== null ? Math.round(ind.stochRsi.d) : "—";
+      const kVal = Number.isFinite(Number(ind.stochRsi.k)) ? Math.round(Number(ind.stochRsi.k)) : "—";
+      const dVal = Number.isFinite(Number(ind.stochRsi.d)) ? Math.round(Number(ind.stochRsi.d)) : "—";
       const tag = ind.stochRsi.overbought ? ' <span class="color-down">OB</span>' : ind.stochRsi.oversold ? ' <span class="color-up">OS</span>' : "";
       setHTML("dval-stochRsi", `K ${kVal} / D ${dVal}${tag}${ind.stochRsi.crossLabel || ""}`);
     }
@@ -404,7 +500,8 @@ function renderDashIndicators(d) {
     setText("dpolyUp", fmtPolyPrice(poly.upPrice));
     setText("dpolyDown", fmtPolyPrice(poly.downPrice));
     setText("dpolyLiquidity", fmt(poly.liquidity, 0));
-    setText("dpriceToBeat", poly.priceToBeat !== null ? `$${fmt(poly.priceToBeat, 0)}` : "—");
+    setText("dpriceToBeat", poly.priceToBeat !== null ? `$${fmt(poly.priceToBeat, PTB_PRICE_DECIMALS)}` : "—");
+    renderPtbComparePanel(poly);
     const cpVal = poly.currentPrice !== null ? `$${fmt(poly.currentPrice, 2)}` : "—";
     const deltaStr = poly.priceDelta !== null ? ` (${poly.priceDelta > 0 ? "+" : ""}$${poly.priceDelta.toFixed(2)})` : "";
     const cpClass = poly.priceDelta > 0 ? "color-up" : poly.priceDelta < 0 ? "color-down" : "";
@@ -431,6 +528,13 @@ function renderDashIndicators(d) {
       bvoEl.textContent = bvo !== null ? `$${bvo > 0 ? "+" : ""}${bvo.toFixed(2)}` : "—";
       bvoEl.className = `value ${colorClass(bvo)}`;
     }
+  }
+
+  const feeds = d.feedSources;
+  if (feeds) {
+    renderFeedSourceRow("dfeedBinanceCom", feeds.binanceCom);
+    renderFeedSourceRow("dfeedBinanceUs", feeds.binanceUs);
+    renderFeedSourceRow("dfeedChainlink", feeds.chainlink);
   }
 }
 
@@ -643,14 +747,140 @@ function renderUnifiedGrid(sim) {
   }).join("");
 }
 
+// ── Scalp: P&L do mercado atual (slug) + última saída — espelha o log de ordens ──
+function scalpHistoryForSlug(history, slug) {
+  const s = String(slug || "");
+  if (!s || !Array.isArray(history)) return [];
+  return history.filter((h) => String(h.slug || "") === s);
+}
+
+function scalpLastClosedForSlug(history, slug) {
+  const rows = scalpHistoryForSlug(history, slug);
+  if (!rows.length) return null;
+  return rows.reduce((best, h) => (String(h.ts || "") > String(best.ts || "") ? h : best));
+}
+
+/** Únicos slugs ordenados do mais recente fechamento ao mais antigo (hist já por trade). */
+const SCALP_MARKET_FOOTER_SLUGS = 5;
+
+function recentScalpMarketSlugsByLastExit(history, limit) {
+  const hist = Array.isArray(history) ? history.slice() : [];
+  hist.sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+  const slugs = [];
+  const seen = new Set();
+  for (const h of hist) {
+    const s = String(h.slug || "");
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    slugs.push(s);
+    if (slugs.length >= limit) break;
+  }
+  return slugs;
+}
+
+/** Garante o mercado do tick atual na lista (no topo se ainda não houver fechos). Máx. `limit` slugs. */
+function mergeCurrentSlugIntoRecentSlugs(slugs, currentSlug, limit) {
+  const cur = String(currentSlug || "");
+  const out = slugs.slice();
+  if (cur && !out.includes(cur)) out.unshift(cur);
+  return out.slice(0, Math.max(1, limit));
+}
+
+function scalpSlugDisplay(slug) {
+  const s = String(slug || "");
+  const short = s.replace(/.*-(\d+)$/, "#$1") || (s.length > 36 ? `${s.slice(0, 36)}…` : s);
+  return { full: s, short: short || "—" };
+}
+
+function renderScalpMarketFooter() {
+  const el = document.getElementById("dryScalpMarketFooter");
+  if (!el) return;
+  const pnlCls = (v) => (Number(v) >= 0 ? "color-up" : "color-down");
+  const pnlSign = (v) => (Number(v) >= 0 ? "+" : "");
+
+  const blocks = [];
+  for (const tf of ["5m", "15m"]) {
+    const d = latestData[tf];
+    const currentSlug = String(d?.market?.slug || "");
+    const strip = d?.simulation?.scalp?.strip;
+    const latestExitTf = strip?.latestExit || null;
+    const w = getScalpWalletForTf(tf);
+    const hist = Array.isArray(w?.history) ? w.history : [];
+
+    const recentFromHist = recentScalpMarketSlugsByLastExit(hist, SCALP_MARKET_FOOTER_SLUGS);
+    const slugList = mergeCurrentSlugIntoRecentSlugs(recentFromHist, currentSlug, SCALP_MARKET_FOOTER_SLUGS);
+
+    const subRows = [];
+    if (!w) {
+      subRows.push('<div class="dry-scalp-market-sub"><span class="dim">sem carteira Scalp no payload</span></div>');
+    } else if (slugList.length === 0) {
+      subRows.push(
+        '<div class="dry-scalp-market-sub"><span class="dim">' +
+        (!currentSlug ? "Mercado ainda não identificado." : "Sem fechos recentes na carteira para listar.") +
+        "</span></div>"
+      );
+    } else {
+      for (const slugStr of slugList) {
+        const sessionRows = scalpHistoryForSlug(hist, slugStr);
+        const sessionPnl = sessionRows.reduce((s, h) => s + (Number(h.pnl) || 0), 0);
+        const n = sessionRows.length;
+        const lastRow = scalpLastClosedForSlug(hist, slugStr);
+        const { short, full } = scalpSlugDisplay(slugStr);
+        const isCurrent = currentSlug && slugStr === currentSlug;
+        const badge = isCurrent ? '<span class="dry-scalp-market-atual">atual</span>' : "";
+
+        let tail = "";
+        const le = latestExitTf && String(latestExitTf.marketSlug || "") === slugStr
+          ? latestExitTf
+          : null;
+        if (le) {
+          const p = Number(le.pnlUsd) || 0;
+          tail += ` · <span class="${pnlCls(p)}">saída: ${escapeAttr(le.exitReason || "?")} ${pnlSign(p)}$${p.toFixed(2)}</span>`;
+        } else if (lastRow) {
+          const p = Number(lastRow.pnl) || 0;
+          tail += ` · <span class="${pnlCls(p)}">último fech.: ${escapeAttr(lastRow.exitReason || "")} ${pnlSign(p)}$${p.toFixed(2)}</span>`;
+        } else if (n === 0) {
+          tail += ' <span class="dim">— sem fechamento neste mercado</span>';
+        }
+
+        subRows.push(
+          `<div class="dry-scalp-market-sub">
+            <span class="dry-scalp-market-sub-slug" title="${escapeAttr(full)}">${escapeAttr(short)}</span>${badge}
+            <span class="dry-scalp-market-sub-detail">
+              <span class="${pnlCls(sessionPnl)}">${pnlSign(sessionPnl)}$${sessionPnl.toFixed(2)}</span>
+              <span class="dim"> · ${n} fech.</span>${tail}
+            </span>
+          </div>`
+        );
+      }
+    }
+
+    blocks.push(
+      `<div class="dry-scalp-market-line">
+        <span class="dry-scalp-market-tf"><b>${tf}</b></span>
+        <div class="dry-scalp-market-tf-block">
+          ${subRows.join("")}
+        </div>
+      </div>`
+    );
+  }
+
+  el.innerHTML = `
+    <div class="dry-scalp-market-head">📌 Scalp — últimos ${SCALP_MARKET_FOOTER_SLUGS} mercados por timeframe</div>
+    <div class="dry-scalp-market-summary">${blocks.join("")}</div>
+  `;
+}
+
 // ── Last Resolved ──
 function renderLastResolved(resolved) {
   const el = document.getElementById("dryLastResolved");
   if (!el) return;
   if (!resolved) {
-    el.innerHTML = '<span class="dim">Aguardando resolução...</span>';
+    el.innerHTML = "";
+    el.hidden = true;
     return;
   }
+  el.hidden = false;
 
   const pnl = resolved.pnl != null
     ? resolved.pnl
@@ -1012,6 +1242,7 @@ function renderScalpAll() {
   const strip5m = latestData["5m"]?.simulation?.scalp?.strip;
   const strip15m = latestData["15m"]?.simulation?.scalp?.strip;
   renderScalpStrip(strip5m, strip15m);
+  renderScalpMarketFooter();
   if (latestAnalysis["5m"]) renderWallets(latestAnalysis["5m"], "5m");
   if (latestAnalysis["15m"]) renderWallets(latestAnalysis["15m"], "15m");
 }
@@ -1794,12 +2025,16 @@ function renderWalletHistoryPanels(simRows, liveRows) {
     </div>`;
   }).join("");
 
+  const maxRows = Math.max(simRows.length, liveRows.length);
+  const scrollHint = maxRows > 10
+    ? " Role o painel abaixo da barra para ver todas as linhas."
+    : "";
   return `
     <div class="dry-history-toolbar">
       <div class="dry-history-tabs" role="tablist" aria-label="Modo do histórico">
         ${buttons}
       </div>
-      <div class="dry-history-hint">Histórico separado por modo. O saldo da tabela é calculado apenas dentro do modo selecionado.</div>
+      <div class="dry-history-hint">Histórico separado por modo; o saldo da tabela é só no modo ativo. Simulação mostra trades fechados (saída + P&L). Entradas DRY em aberto ficam no log de ordens até fechar.${scrollHint}</div>
     </div>
     ${panels}
   `;

@@ -143,7 +143,8 @@ let ptbFetchInFlight = new Set(); // slugs currently being fetched
  *
  * Uses binary search over the current aggregator phase rounds to locate the
  * round whose updatedAt ≤ targetUnixSec and the next round's updatedAt >
- * targetUnixSec. This matches exactly how Polymarket resolves these markets.
+ * targetUnixSec. Polymarket BTC up/down UI resolves from Chainlink *Data Streams*
+ * (WS), not this Polygon proxy — valores podem afastar-se alguns USD do stream.
  *
  * Returns the price (number) or null on failure.
  */

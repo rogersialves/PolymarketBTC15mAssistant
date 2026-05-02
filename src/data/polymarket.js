@@ -9,6 +9,13 @@ function toNumber(x) {
 const EVENT_PAGE_PTB_CACHE = new Map();
 const EVENT_PAGE_PTB_IN_FLIGHT = new Set();
 
+/** Slugs da série BTC Up/Down por janela (Gamma + página ativa não trazem PTB no payload). */
+const BTC_UPDOWN_WINDOW_SLUG_RE = /^btc-updown-(5m|15m)-\d+$/i;
+
+export function isBtcUpDownWindowSlug(slug) {
+  return Boolean(slug && BTC_UPDOWN_WINDOW_SLUG_RE.test(String(slug)));
+}
+
 function escapeRegex(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -116,6 +123,15 @@ async function fetchEventPageNextDataPriceToBeat(slug, { signal } = {}) {
 
 export function getCachedEventPagePtb(slug) {
   return EVENT_PAGE_PTB_CACHE.get(slug)?.price ?? null;
+}
+
+/** Para UI/diagnóstico: distingue “ainda não buscou” de “buscou e não veio PTB no payload”. */
+export function getEventPagePtbMeta(slug) {
+  if (!slug) return { status: "idle" };
+  const row = EVENT_PAGE_PTB_CACHE.get(slug);
+  if (row === undefined) return { status: "pending" };
+  if (row.price !== null && Number.isFinite(row.price)) return { status: "hit", fetchedAt: row.fetchedAt };
+  return { status: "miss", fetchedAt: row.fetchedAt };
 }
 
 export async function fetchEventPagePriceToBeat(slug, { signal } = {}) {
@@ -388,15 +404,26 @@ export function extractNumericFromMarket(market) {
 
 /**
  * Extracts the price-to-beat from the market question/title text as a fallback.
+ * Nota: mercados `btc-updown-5m|15m-*` só trazem data/hora no título — sem valor USD;
+ * para esses mercados isto devolve sempre null (o PTB vem de Chainlink / slug).
  */
 export function parsePriceToBeatFromText(market) {
   const text = String(market?.question ?? market?.title ?? "");
   if (!text) return null;
-  const match = text.match(/price\s*to\s*beat[^\d$]*\$?\s*([0-9][0-9,]*(?:\.[0-9]+)?)/i);
-  if (!match) return null;
-  const raw = match[1].replace(/,/g, "");
-  const number = Number(raw);
-  return Number.isFinite(number) ? number : null;
+  // BTC PTB is always a spot-like level — reject tiny numbers that can appear
+  // elsewhere in the title (odds, fees). Prefer explicit "price to beat is $N".
+  const patterns = [
+    /price\s*to\s*beat\s*(?:is|of|:)?\s*\$?\s*([0-9][0-9,]*(?:\.[0-9]+)?)/i,
+    /price\s*to\s*beat[^$\d]{0,48}\$?\s*([0-9][0-9,]*(?:\.[0-9]+)?)/i
+  ];
+  for (const re of patterns) {
+    const match = text.match(re);
+    if (!match) continue;
+    const raw = String(match[1] || "").replace(/,/g, "");
+    const number = Number(raw);
+    if (Number.isFinite(number) && number > 1000 && number < 2_000_000) return number;
+  }
+  return null;
 }
 
 /**
