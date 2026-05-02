@@ -1,5 +1,6 @@
 import { CONFIG } from "../config.js";
 import { getBinanceFeedHostsSnapshot } from "./binance.js";
+import { getExchangeTickerFeedMetaSnapshot } from "./exchanges.js";
 
 const CHAINLINK_FRESH_MS = 45_000;
 
@@ -177,6 +178,32 @@ export function buildChainlinkFeedStatus({
  * @param {boolean} [opts.polymarketCurrentFresh]
  * @param {object} [opts.binanceSnapshot] — override for tests (default: live getBinanceFeedHostsSnapshot())
  */
+/** REST ticker rows (Coinbase / Kraken / Bybit / OKX) — freshness vs exchangeTickerCacheMs. */
+export function buildRestTickerFeedStatus(meta, now) {
+  const { lastOkAt, lastLatencyMs, lastError } = meta || {};
+  const freshMs = Number(CONFIG.exchangeTickerCacheMs) + 5000;
+  if (lastOkAt != null && Number.isFinite(lastOkAt) && now - lastOkAt <= freshMs) {
+    return {
+      status: "ok",
+      detail: "REST ticker",
+      ageMs: now - lastOkAt,
+      latencyMs: lastLatencyMs ?? null
+    };
+  }
+  if (lastOkAt != null && Number.isFinite(lastOkAt)) {
+    return {
+      status: "stale",
+      detail: lastError || "último OK antigo",
+      ageMs: now - lastOkAt,
+      latencyMs: lastLatencyMs ?? null
+    };
+  }
+  if (lastError) {
+    return { status: "down", detail: lastError, ageMs: null, latencyMs: null };
+  }
+  return { status: "unknown", detail: "aguardando fetch", ageMs: null, latencyMs: null };
+}
+
 export function buildFeedSourcesSnapshot({
   now = Date.now(),
   chainlinkData = null,
@@ -194,5 +221,14 @@ export function buildFeedSourcesSnapshot({
     polymarketCurrentFresh,
     polymarketPriceAgeMs
   });
-  return { binanceCom, binanceUs, chainlink };
+  const te = getExchangeTickerFeedMetaSnapshot();
+  return {
+    binanceCom,
+    binanceUs,
+    chainlink,
+    coinbaseTicker: buildRestTickerFeedStatus(te.coinbase, now),
+    krakenTicker: buildRestTickerFeedStatus(te.kraken, now),
+    bybitTicker: buildRestTickerFeedStatus(te.bybit, now),
+    okxTicker: buildRestTickerFeedStatus(te.okx, now)
+  };
 }

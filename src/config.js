@@ -50,6 +50,11 @@ export const CONFIG = {
   binanceKlinesCacheMs: Number(process.env.BINANCE_KLINES_CACHE_MS || 2_000),
   binanceLastPriceCacheMs: Number(process.env.BINANCE_LAST_PRICE_CACHE_MS || 2_000),
   exchangeTickerCacheMs: Number(process.env.EXCHANGE_TICKER_CACHE_MS || 10_000),
+  /** Velas 1m para RSI/MACD/VWAP/etc.: `binance` (padrão) ou `okx` (maior liquidez em algumas regiões). */
+  indicatorCandleSource: (() => {
+    const v = String(process.env.INDICATOR_CANDLE_SOURCE || "binance").toLowerCase();
+    return v === "okx" ? "okx" : "binance";
+  })(),
   candleWindowMinutes: 5,
   polymarketCurrentPriceMaxAgeMs: Number(process.env.POLYMARKET_CURRENT_PRICE_MAX_AGE_MS || 1_500),
 

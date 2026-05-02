@@ -32,7 +32,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CONFIG, WINDOW_PRESETS, applyWindowPreset } from "./config.js";
-import { applyLiveCloseToLatestCandle, fetchKlines, fetchLastPrice, primeBinanceFeedHosts } from "./data/binance.js";
+import { applyLiveCloseToLatestCandle, primeBinanceFeedHosts } from "./data/binance.js";
+import { fetchIndicatorMarketBundle } from "./data/indicatorMarketFetch.js";
 import { buildFeedSourcesSnapshot } from "./data/feedSources.js";
 import { startBinanceTradeStream } from "./data/binanceWs.js";
 import { fetchChainlinkBtcUsd, ensurePtbForSlug, getCachedPtbForSlug } from "./data/chainlink.js";
@@ -778,44 +779,56 @@ function createScalpEngine(windowMinutes, sharedStreams) {
           ? Promise.resolve({ price: chainlinkLivePrice, updatedAt: chainlinkTick?.updatedAt ?? null, source: "chainlink_ws" })
           : fetchChainlinkBtcUsd();
 
-      const [candles1m, chainlinkData, binanceLastPrice, polymarketData] = await Promise.all([
-        timedStep("binance.klines", () => fetchKlines({ symbol: CONFIG.symbol, interval: "1m", limit: 200 })),
-        timedStep("chainlink.price", async () => {
-          try {
-            return await withTimeout(chainlinkPricePromise, CHAINLINK_STEP_TIMEOUT_MS, `chainlink price ${tfLabel}`);
-          } catch (err) {
-            const fallbackPrice = chainlinkLivePrice ?? previousChainlinkPrice ?? null;
-            if (fallbackPrice !== null) {
-              return {
-                price: fallbackPrice,
-                updatedAt: chainlinkTickTs ?? Date.now(),
-                source: chainlinkLivePrice !== null ? "chainlink_ws" : "chainlink_cache"
-              };
-            }
-            throw err;
+      const chainlinkStep = timedStep("chainlink.price", async () => {
+        try {
+          return await withTimeout(chainlinkPricePromise, CHAINLINK_STEP_TIMEOUT_MS, `chainlink price ${tfLabel}`);
+        } catch (err) {
+          const fallbackPrice = chainlinkLivePrice ?? previousChainlinkPrice ?? null;
+          if (fallbackPrice !== null) {
+            return {
+              price: fallbackPrice,
+              updatedAt: chainlinkTickTs ?? Date.now(),
+              source: chainlinkLivePrice !== null ? "chainlink_ws" : "chainlink_cache"
+            };
           }
-        }),
-        timedStep("binance.last_price", () => binanceLivePrice !== null ? Promise.resolve(binanceLivePrice) : fetchLastPrice()),
-        timedStep("polymarket.snapshot", async () => {
-          try {
-            return await withTimeout(polyResolver.fetchSnapshot(), POLYMARKET_SNAPSHOT_TIMEOUT_MS, `polymarket snapshot ${tfLabel}`);
-          } catch (err) {
-            const cachedMarket = polyResolver.getCachedMarket();
-            if (cachedMarket) {
-              console.warn(`⚠️  [${tfLabel}] polymarket snapshot timeout; usando cache: ${err?.message || err}`);
-              return {
-                ok: true, market: cachedMarket,
-                prices: { up: null, down: null }, gammaPrices: { up: null, down: null },
-                priceFresh: false, priceSource: "timeout_cache",
-                priceFetchedAt: Date.now(), tokenIds: { up: null, down: null }
-              };
-            }
-            throw err;
+          throw err;
+        }
+      });
+      const polymarketStep = timedStep("polymarket.snapshot", async () => {
+        try {
+          return await withTimeout(polyResolver.fetchSnapshot(), POLYMARKET_SNAPSHOT_TIMEOUT_MS, `polymarket snapshot ${tfLabel}`);
+        } catch (err) {
+          const cachedMarket = polyResolver.getCachedMarket();
+          if (cachedMarket) {
+            console.warn(`⚠️  [${tfLabel}] polymarket snapshot timeout; usando cache: ${err?.message || err}`);
+            return {
+              ok: true, market: cachedMarket,
+              prices: { up: null, down: null }, gammaPrices: { up: null, down: null },
+              priceFresh: false, priceSource: "timeout_cache",
+              priceFetchedAt: Date.now(), tokenIds: { up: null, down: null }
+            };
           }
-        })
-      ]);
+          throw err;
+        }
+      });
 
-      const candles1mLive = applyLiveCloseToLatestCandle(candles1m, binanceLastPrice);
+      const useOkxCandles = CONFIG.indicatorCandleSource === "okx";
+      const {
+        candles1m,
+        taLastPrice,
+        binanceSpot,
+        chainlinkData,
+        polymarketData,
+        indicatorSourceEffective
+      } = await fetchIndicatorMarketBundle({
+        useOkxCandles,
+        binanceLivePrice,
+        chainlinkStep,
+        polymarketStep,
+        timedStep
+      });
+
+      const candles1mLive = applyLiveCloseToLatestCandle(candles1m, taLastPrice);
 
       // Settlement / candle timing
       const settlementMs = polymarketData.ok && polymarketData.market?.endDate
@@ -831,7 +844,7 @@ function createScalpEngine(windowMinutes, sharedStreams) {
       const slopeLookback = tfConfig.vwapSlopeLookbackMinutes;
       const vwapSlope = vwapSeries.length >= slopeLookback
         ? (currentVwap - vwapSeries[vwapSeries.length - slopeLookback]) / slopeLookback : null;
-      const vwapDistance = currentVwap ? (binanceLastPrice - currentVwap) / currentVwap : null;
+      const vwapDistance = currentVwap ? (taLastPrice - currentVwap) / currentVwap : null;
       const currentRsi = computeRsi(closePrices, CONFIG.rsiPeriod);
       const rsiSeries = computeRsiSeries(closePrices, CONFIG.rsiPeriod).filter(v => v !== null);
       const rsiSlope = slopeLast(rsiSeries, 3);
@@ -850,9 +863,9 @@ function createScalpEngine(windowMinutes, sharedStreams) {
         ? closePrices[closePrices.length - 1] < currentVwap && closePrices[closePrices.length - 2] > vwapSeries[vwapSeries.length - 2]
         : false;
 
-      const regimeInfo = detectRegime({ price: binanceLastPrice, vwap: currentVwap, vwapSlope, vwapCrossCount, volumeRecent: recentVolume, volumeAvg: averageVolume });
+      const regimeInfo = detectRegime({ price: taLastPrice, vwap: currentVwap, vwapSlope, vwapCrossCount, volumeRecent: recentVolume, volumeAvg: averageVolume });
       const directionScore = scoreDirection({
-        price: binanceLastPrice, vwap: currentVwap, vwapSlope, rsi: currentRsi, rsiSlope,
+        price: taLastPrice, vwap: currentVwap, vwapSlope, rsi: currentRsi, rsiSlope,
         macd: macdResult, heikenColor: heikenAshiStreak.color, heikenCount: heikenAshiStreak.count,
         failedVwapReclaim, bollinger: bollingerResult, stochRsi: stochRsiResult,
         emaCross: emaCrossResult, obv: obvResult, atr: atrResult
@@ -882,7 +895,7 @@ function createScalpEngine(windowMinutes, sharedStreams) {
       const delta3m = latestClose !== null && closePrev3m !== null ? latestClose - closePrev3m : null;
       const signalLabel = decision.action === "ENTER" ? (decision.side === "UP" ? "BUY UP" : "BUY DOWN") : "NO TRADE";
 
-      const spotPrice = binanceLivePrice ?? binanceLastPrice;
+      const spotPrice = binanceLivePrice ?? binanceSpot;
       const chainlinkPrice = chainlinkData?.price ?? null;
       const marketSlug = polymarketData.ok ? String(polymarketData.market?.slug ?? "") : "";
       const marketTitle = polymarketData.ok ? String(polymarketData.market?.title ?? polymarketData.market?.question ?? "") : "";
@@ -990,8 +1003,10 @@ function createScalpEngine(windowMinutes, sharedStreams) {
 
       // Exchange median (usado pelo Scalp para direção)
       const exchanges = getExchangeTickers();
-      const exchangePrices = [exchanges.binance.price, exchanges.coinbase.price, exchanges.kraken.price]
-        .filter(p => p !== null && Number.isFinite(p));
+      const exchangePrices = [
+        exchanges.binance.price, exchanges.coinbase.price, exchanges.kraken.price,
+        exchanges.bybit.price, exchanges.okx.price
+      ].filter(p => p !== null && Number.isFinite(p));
       const scalpExchangeMedian = computeExchangeMedian(exchangePrices);
 
       const oracleLagMs = (binanceTickTs !== null && chainlinkTickTs !== null)
@@ -999,6 +1014,9 @@ function createScalpEngine(windowMinutes, sharedStreams) {
       const binanceVsOracle = (spotPrice !== null && chainlinkPrice !== null
         && Number.isFinite(spotPrice) && Number.isFinite(chainlinkPrice))
         ? spotPrice - chainlinkPrice : null;
+      const taVsOracle = (taLastPrice !== null && chainlinkPrice !== null
+        && Number.isFinite(taLastPrice) && Number.isFinite(chainlinkPrice))
+        ? taLastPrice - chainlinkPrice : null;
       const oracleSpreadPct = (exchangePrices.length >= 2 && chainlinkPrice !== null
         && Number.isFinite(chainlinkPrice) && chainlinkPrice > 0)
         ? ((Math.max(...exchangePrices) - Math.min(...exchangePrices)) / chainlinkPrice) * 100 : null;
@@ -1240,9 +1258,17 @@ function createScalpEngine(windowMinutes, sharedStreams) {
           exchanges: {
             binance: { price: exchanges.binance.price, volume: exchanges.binance.volume },
             coinbase: { price: exchanges.coinbase.price, volume: exchanges.coinbase.volume },
-            kraken: { price: exchanges.kraken.price, volume: exchanges.kraken.volume }
+            kraken: { price: exchanges.kraken.price, volume: exchanges.kraken.volume },
+            bybit: { price: exchanges.bybit.price, volume: exchanges.bybit.volume },
+            okx: { price: exchanges.okx.price, volume: exchanges.okx.volume }
           },
-          oracle: { lagMs: oracleLagMs, binanceVsOracle, spreadPct: oracleSpreadPct },
+          oracle: {
+            lagMs: oracleLagMs,
+            binanceVsOracle,
+            taVsOracle,
+            spreadPct: oracleSpreadPct,
+            indicatorCandleSource: indicatorSourceEffective
+          },
           feedSources: buildFeedSourcesSnapshot({
             now: Date.now(),
             chainlinkData,

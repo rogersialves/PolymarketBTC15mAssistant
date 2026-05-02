@@ -115,14 +115,42 @@ function renderFeedSourceRow(elId, entry) {
   bits.push(feedStatusLabel(entry.status));
   if (entry.source) bits.push(String(entry.source));
   if (entry.ageMs != null && Number.isFinite(Number(entry.ageMs))) {
-    bits.push(`${(Number(entry.ageMs) / 1000).toFixed(0)}s`);
+    bits.push(`há ${(Number(entry.ageMs) / 1000).toFixed(0)}s`);
   } else if (entry.latencyMs != null && Number.isFinite(Number(entry.latencyMs))) {
     bits.push(`${Math.round(Number(entry.latencyMs))}ms`);
   }
   const line = bits.join(" · ");
   el.textContent = line;
   el.className = `feed-status ${feedStatusClass(entry.status)}`;
-  el.title = detail ? `${detail}\n${line}` : line;
+  const ageHint = entry.ageMs != null && Number.isFinite(Number(entry.ageMs))
+    ? "Tempo desde o último fetch REST bem-sucedido desta fonte — não é o intervalo de atualização das velas 1m usadas nos indicadores TA (isso vem de INDICATOR_CANDLE_SOURCE / BINANCE_KLINES_CACHE_MS)."
+    : "";
+  el.title = [detail, ageHint, line].filter(Boolean).join("\n");
+}
+
+/** Atualiza badges BN/OKX nas linhas de indicadores (fonte das velas 1m). */
+function applyTaCandleSourceBadges(srcRaw) {
+  const src = srcRaw || "binance";
+  const grid = document.getElementById("dryIndicatorsGrid");
+  if (grid) grid.dataset.taSource = src;
+  const slug = src === "okx" ? "okx" : src === "binance_fallback" ? "fb" : "bn";
+  const label = src === "okx" ? "OKX (BTC-USDT)" : src === "binance_fallback" ? "Binance (fallback)" : "Binance";
+  document.querySelectorAll("#dryIndicatorsGrid [data-role=\"ta-candle-source\"]").forEach((el) => {
+    el.className = `ind-src-badge src-${slug}`;
+    el.title = `Velas 1m para estes indicadores: ${label}`;
+    el.setAttribute("aria-label", `Fonte velas TA: ${label}`);
+  });
+}
+
+function marketSlugTooltip(slug) {
+  if (!slug) return "Slug do mercado na Polymarket.";
+  const parts = String(slug).split("-");
+  const tail = Number(parts[parts.length - 1]);
+  if (!Number.isFinite(tail) || tail < 1_000_000_000) {
+    return "Identificador do mercado (Polymarket). Não indica “última atualização” dos indicadores.";
+  }
+  const iso = new Date(tail * 1000).toISOString();
+  return `O número final do slug é o início da janela do mercado (UTC ≈ ${iso}). Não é o tempo desde a última atualização dos indicadores.`;
 }
 
 function shortToken(token) {
@@ -422,7 +450,10 @@ function renderDashIndicators(d) {
     const titleEl = document.getElementById("dryDashTitle");
     if (titleEl) titleEl.textContent = d.market.title || "Connecting...";
     const slugEl = document.getElementById("dryDashSlug");
-    if (slugEl) slugEl.textContent = d.market.slug || "—";
+    if (slugEl) {
+      slugEl.textContent = d.market.slug || "—";
+      slugEl.title = marketSlugTooltip(d.market.slug || "");
+    }
     const tlEl = document.getElementById("dryDashTimeLeft");
     if (tlEl) {
       tlEl.textContent = d.market.timeLeftFormatted || "--:--";
@@ -521,13 +552,20 @@ function renderDashIndicators(d) {
     renderDashExchange("Binance", ex.binance);
     renderDashExchange("Coinbase", ex.coinbase);
     renderDashExchange("Kraken", ex.kraken);
+    renderDashExchange("Bybit", ex.bybit);
+    renderDashExchange("Okx", ex.okx);
   }
 
   const oracle = d.oracle;
   if (oracle) {
     setText("doracleLag", oracle.lagMs !== null ? `${(oracle.lagMs / 1000).toFixed(1)}s` : "—");
     setText("doracleSpread", oracle.spreadPct !== null ? fmtPct(oracle.spreadPct, 3) : "—");
-    const bvo = oracle.binanceVsOracle;
+    const src = oracle.indicatorCandleSource || "binance";
+    const labEl = document.getElementById("dvsOracleLabel");
+    if (labEl) {
+      labEl.textContent = src === "okx" ? "OKX vs Oracle" : src === "binance_fallback" ? "Bin vs Oracle (fallback)" : "Bin vs Oracle";
+    }
+    const bvo = src === "okx" ? oracle.taVsOracle : oracle.binanceVsOracle;
     const bvoEl = document.getElementById("dbinVsOracle");
     if (bvoEl) {
       bvoEl.textContent = bvo !== null ? `$${bvo > 0 ? "+" : ""}${bvo.toFixed(2)}` : "—";
@@ -539,8 +577,14 @@ function renderDashIndicators(d) {
   if (feeds) {
     renderFeedSourceRow("dfeedBinanceCom", feeds.binanceCom);
     renderFeedSourceRow("dfeedBinanceUs", feeds.binanceUs);
+    renderFeedSourceRow("dfeedCoinbaseTicker", feeds.coinbaseTicker);
+    renderFeedSourceRow("dfeedKrakenTicker", feeds.krakenTicker);
+    renderFeedSourceRow("dfeedBybitTicker", feeds.bybitTicker);
+    renderFeedSourceRow("dfeedOkxTicker", feeds.okxTicker);
     renderFeedSourceRow("dfeedChainlink", feeds.chainlink);
   }
+
+  applyTaCandleSourceBadges(d.oracle?.indicatorCandleSource);
 }
 
 function renderDashExchange(name, data) {

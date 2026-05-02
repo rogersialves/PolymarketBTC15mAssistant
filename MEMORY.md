@@ -857,7 +857,7 @@ if (snapshotSavedForSlug !== null && snapshotSavedForSlug !== marketSlug) {
 
 ### 🟢 Melhoria #13 — `package.json` com versões `^` (semver permissivo)
 
-**Problema:** Dependências críticas como `ethers` (`^6.11.1`) e `@polymarket/clob-client` (`^5.8.1`) usam o prefixo `^`, que permite instalar minor versions mais novas automaticamente. Em um sistema de trading financeiro, uma atualização automática de biblioteca pode introduzir quebras inesperadas.
+**Problema:** Dependências críticas como `ethers` (`^6.11.1`), `@polymarket/clob-client-v2`, e `viem` usam o prefixo `^`, que permite instalar minor versions mais novas automaticamente. Em um sistema de trading financeiro, uma atualização automática de biblioteca pode introduzir quebras inesperadas.
 
 **Localização:** `package.json`
 
@@ -865,7 +865,8 @@ if (snapshotSavedForSlug !== null && snapshotSavedForSlug !== marketSlug) {
 
 ```json
 "dependencies": {
-  "@polymarket/clob-client": "5.8.1",
+  "@polymarket/clob-client-v2": "1.0.2",
+  "viem": "2.28.0",
   "ethers": "6.11.1",
   ...
 }

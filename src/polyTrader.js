@@ -3,20 +3,43 @@
 // DRY_RUN mode: logs orders without executing
 // LIVE mode: submits real orders via CLOB API
 
-import { ethers } from "ethers";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
+import { privateKeyToAccount } from "viem/accounts";
+import { createWalletClient, http } from "viem";
+import { polygon, polygonAmoy } from "viem/chains";
+import {
+  AssetType,
+  Chain,
+  ClobClient,
+  OrderType,
+  Side,
+  SignatureTypeV2,
+} from "@polymarket/clob-client-v2";
 import { mergeTradeHistoryRecords, readTradeHistoryFile, writeTradeHistoryFileAtomicAsync } from "./tradeHistoryMerge.js";
 import { isPostgresEnabled } from "./storage/db.js";
 import { ensureTradeHistorySchema, listTradeHistoryRecords, upsertTradeHistoryRecords } from "./storage/tradeHistoryStore.js";
 
-// ── Ethers v6 → v5 Signer Adapter ──
-// The @polymarket/clob-client expects ethers v5 _signTypedData, but we use v6
-function createClobSigner(wallet) {
-  return {
-    getAddress: () => Promise.resolve(wallet.address),
-    _signTypedData: (domain, types, value) => wallet.signTypedData(domain, types, value)
-  };
+function normalizePrivateKeyHex(key) {
+  const s = String(key || "").trim();
+  if (!s) return null;
+  return s.startsWith("0x") ? s : `0x${s}`;
+}
+
+function signatureTypeV2FromNumber(n) {
+  if (n === 1) return SignatureTypeV2.POLY_PROXY;
+  if (n === 2) return SignatureTypeV2.POLY_GNOSIS_SAFE;
+  return SignatureTypeV2.EOA;
+}
+
+function clobChainFromPolyChainId(chainId) {
+  if (chainId === Chain.AMOY) return Chain.AMOY;
+  return Chain.POLYGON;
+}
+
+function viemChainFromPolyChainId(chainId) {
+  if (chainId === Chain.AMOY) return polygonAmoy;
+  return polygon;
 }
 
 export class PolyTrader {
@@ -266,13 +289,21 @@ export class PolyTrader {
     }
 
     try {
-      // Dynamic import to avoid breaking if package not installed
-      const { ClobClient } = await import("@polymarket/clob-client");
+      const pkHex = normalizePrivateKeyHex(this.privateKey);
+      if (!pkHex) throw new Error("POLY_PRIVATE_KEY inválida");
+      this.privateKey = null;
 
-      // Create ethers wallet
-      this.wallet = new ethers.Wallet(this.privateKey);
-      this.privateKey = null; // clear from memory after use
-      const signer = createClobSigner(this.wallet);
+      const account = privateKeyToAccount(pkHex);
+      this.wallet = { address: account.address };
+      const clobChain = clobChainFromPolyChainId(this.chainId);
+      const viemChain = viemChainFromPolyChainId(this.chainId);
+      const rpcUrl = process.env.POLY_RPC_URL?.trim();
+      const transport = rpcUrl ? http(rpcUrl) : http();
+      const signer = createWalletClient({
+        account,
+        chain: viemChain,
+        transport,
+      });
       console.log(`🔑 [PolyTrader] Wallet EOA: ${this.wallet.address}`);
 
       // ── Determine signatureType e funderAddress ──
@@ -294,14 +325,12 @@ export class PolyTrader {
       // else: type=0 → tentaremos auto-detectar após derivar API keys
 
       // Step 1: Derivar API keys (chave é independente do signatureType)
-      const l1Client = new ClobClient(
-        this.host,
-        this.chainId,
+      const l1Client = new ClobClient({
+        host: this.host,
+        chain: clobChain,
         signer,
-        undefined,
-        0,           // type=0 para derivação de chave (tipo não afeta o processo)
-        undefined
-      );
+        signatureType: SignatureTypeV2.EOA,
+      });
 
       console.log("🔑 [PolyTrader] Derivando API keys...");
       this.creds = await l1Client.createOrDeriveApiKey();
@@ -310,13 +339,16 @@ export class PolyTrader {
       // Step 2: Auto-detectar se type=0 (padrão) e nenhum funder explícito
       if (this.signatureType === 0 && !effectiveFunderAddress) {
         try {
-          const { AssetType } = await import("@polymarket/clob-client");
-          const probeClient = new ClobClient(
-            this.host, this.chainId, signer, this.creds, 1, this.wallet.address
-          );
+          const probeClient = new ClobClient({
+            host: this.host,
+            chain: clobChain,
+            signer,
+            creds: this.creds,
+            signatureType: SignatureTypeV2.POLY_PROXY,
+            funderAddress: this.wallet.address,
+          });
           const probe = await probeClient.getBalanceAllowance({
-            asset_type: AssetType?.COLLATERAL || "COLLATERAL",
-            signature_type: 1
+            asset_type: AssetType.COLLATERAL,
           });
           const probeBalance = parseFloat(probe?.balance ?? "0");
           if (probeBalance > 0) {
@@ -339,14 +371,18 @@ export class PolyTrader {
       // Step 3: Criar cliente autenticado com parâmetros efetivos
       this.effectiveSignatureType = effectiveSignatureType;
       this.effectiveFunderAddress = effectiveFunderAddress;
-      this.client = new ClobClient(
-        this.host,
-        this.chainId,
+      const finalSig = signatureTypeV2FromNumber(effectiveSignatureType);
+      const clientOpts = {
+        host: this.host,
+        chain: clobChain,
         signer,
-        this.creds,
-        effectiveSignatureType,
-        effectiveFunderAddress
-      );
+        creds: this.creds,
+        signatureType: finalSig,
+      };
+      if (effectiveFunderAddress) {
+        clientOpts.funderAddress = effectiveFunderAddress;
+      }
+      this.client = new ClobClient(clientOpts);
 
       // Step 4: Verify connection
       const ok = await this.client.getOk();
@@ -377,10 +413,8 @@ export class PolyTrader {
   async refreshBalance() {
     if (!this.initialized || !this.client) return null;
     try {
-      const { AssetType } = await import("@polymarket/clob-client");
       const resp = await this.client.getBalanceAllowance({
-        asset_type: AssetType?.COLLATERAL || "COLLATERAL",
-        signature_type: this.effectiveSignatureType ?? this.signatureType
+        asset_type: AssetType.COLLATERAL,
       });
 
       // The CLOB API may return:
@@ -419,7 +453,6 @@ export class PolyTrader {
   async placeTrade({ side, price, sizeUsd, tokenId, forceLive = false, metadata = {} }) {
     // forceLive: execute LIVE for this specific indicator even if global dryRun = true
     const effectiveDryRun = this.dryRun && !forceLive;
-    const { Side, OrderType } = await import("@polymarket/clob-client");
 
     // Cap the stake
     let cappedSize = Math.min(sizeUsd, this.maxStake);

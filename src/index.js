@@ -387,10 +387,12 @@ async function main() {
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
 
-   let previousSpotPrice = null;
+  let previousSpotPrice = null;
   let previousChainlinkPrice = null;
   let previousCoinbasePrice = null;
+  let previousKrakenPrice = null;
   let previousBybitPrice = null;
+  let previousOkxPrice = null;
   let priceToBeatState = { slug: null, value: null, setAtMs: null };
 
   // ── Snapshot CSV: grava uma linha por fechamento de candle ──
@@ -440,8 +442,12 @@ async function main() {
     "binance_vol_24h",
     "coinbase_price",
     "coinbase_vol_24h",
+    "kraken_price",
+    "kraken_vol_24h",
     "bybit_price",
     "bybit_vol_24h",
+    "okx_price",
+    "okx_vol_24h",
     // Oracle
     "oracle_lag_ms",
     "binance_vs_oracle_usd",
@@ -751,7 +757,10 @@ async function main() {
       const binanceVsOracle = (spotPrice !== null && chainlinkPrice !== null && Number.isFinite(spotPrice) && Number.isFinite(chainlinkPrice))
         ? spotPrice - chainlinkPrice
         : null;
-      const exchangePrices = [exchanges.binance.price, exchanges.coinbase.price, exchanges.bybit.price].filter(p => p !== null && Number.isFinite(p));
+      const exchangePrices = [
+        exchanges.binance.price, exchanges.coinbase.price, exchanges.kraken.price,
+        exchanges.bybit.price, exchanges.okx.price
+      ].filter(p => p !== null && Number.isFinite(p));
       const oracleSpreadPct = (exchangePrices.length >= 2 && chainlinkPrice !== null && Number.isFinite(chainlinkPrice) && chainlinkPrice > 0)
         ? ((Math.max(...exchangePrices) - Math.min(...exchangePrices)) / chainlinkPrice) * 100
         : null;
@@ -785,6 +794,21 @@ async function main() {
       const coinbaseSpotDisplayValue = ((coinbaseSpotBaseLine + coinbaseVsChainlinkDiff).split(": ")[1] ?? coinbaseSpotBaseLine) + ` | Vol: ${coinbaseVolume}`;
       const coinbaseSpotLine = keyValue("BTC (Coinbase):", coinbaseSpotDisplayValue);
 
+      // ── Kraken spot display ──
+      const krakenPrice = exchanges.kraken.price;
+      const krakenVolume = exchanges.kraken.volume ? `${formatNumber(exchanges.kraken.volume, 1)} BTC` : "-";
+      const krakenSpotBaseLine = colorPriceLine({ label: "BTC (Kraken)", price: krakenPrice, previousPrice: previousKrakenPrice, decimals: 0, prefix: "$" });
+      const krakenVsChainlinkDiff = (krakenPrice !== null && chainlinkPrice !== null && Number.isFinite(krakenPrice) && Number.isFinite(chainlinkPrice) && chainlinkPrice !== 0)
+        ? (() => {
+          const diffUsd = krakenPrice - chainlinkPrice;
+          const diffPct = (diffUsd / chainlinkPrice) * 100;
+          const sign = diffUsd > 0 ? "+" : diffUsd < 0 ? "-" : "";
+          return ` (${sign}$${Math.abs(diffUsd).toFixed(2)}, ${sign}${Math.abs(diffPct).toFixed(2)}%)`;
+        })()
+        : "";
+      const krakenSpotDisplayValue = ((krakenSpotBaseLine + krakenVsChainlinkDiff).split(": ")[1] ?? krakenSpotBaseLine) + ` | Vol: ${krakenVolume}`;
+      const krakenSpotLine = keyValue("BTC (Kraken):", krakenSpotDisplayValue);
+
       // ── Bybit spot display ──
       const bybitPrice = exchanges.bybit.price;
       const bybitVolume = exchanges.bybit.volume ? `${formatNumber(exchanges.bybit.volume, 1)} BTC` : "-";
@@ -799,6 +823,21 @@ async function main() {
         : "";
       const bybitSpotDisplayValue = ((bybitSpotBaseLine + bybitVsChainlinkDiff).split(": ")[1] ?? bybitSpotBaseLine) + ` | Vol: ${bybitVolume}`;
       const bybitSpotLine = keyValue("BTC (Bybit):", bybitSpotDisplayValue);
+
+      // ── OKX spot display ──
+      const okxPrice = exchanges.okx.price;
+      const okxVolume = exchanges.okx.volume ? `${formatNumber(exchanges.okx.volume, 1)} BTC` : "-";
+      const okxSpotBaseLine = colorPriceLine({ label: "BTC (OKX)", price: okxPrice, previousPrice: previousOkxPrice, decimals: 0, prefix: "$" });
+      const okxVsChainlinkDiff = (okxPrice !== null && chainlinkPrice !== null && Number.isFinite(okxPrice) && Number.isFinite(chainlinkPrice) && chainlinkPrice !== 0)
+        ? (() => {
+          const diffUsd = okxPrice - chainlinkPrice;
+          const diffPct = (diffUsd / chainlinkPrice) * 100;
+          const sign = diffUsd > 0 ? "+" : diffUsd < 0 ? "-" : "";
+          return ` (${sign}$${Math.abs(diffUsd).toFixed(2)}, ${sign}${Math.abs(diffPct).toFixed(2)}%)`;
+        })()
+        : "";
+      const okxSpotDisplayValue = ((okxSpotBaseLine + okxVsChainlinkDiff).split(": ")[1] ?? okxSpotBaseLine) + ` | Vol: ${okxVolume}`;
+      const okxSpotLine = keyValue("BTC (OKX):", okxSpotDisplayValue);
 
       // ── Market info ──
       const titleLine = polymarketData.ok ? `${polymarketData.market?.question ?? "-"}` : "-";
@@ -840,7 +879,9 @@ async function main() {
         "",
         binanceSpotLine,
         coinbaseSpotLine,
+        krakenSpotLine,
         bybitSpotLine,
+        okxSpotLine,
         keyValue("Oracle Lag:", `${oracleLagMs !== null ? `${(oracleLagMs / 1000).toFixed(1)}s` : "-"}  ${ANSI.dim}${ANSI.gray}| Spread: ${oracleSpreadPct !== null ? `${oracleSpreadPct.toFixed(3)}%` : "-"} | Bin vs Oracle: ${binanceVsOracle !== null ? `${binanceVsOracle > 0 ? "+" : ""}$${binanceVsOracle.toFixed(2)}` : "-"}${ANSI.reset}`),
         "",
         separatorLine(),
@@ -856,7 +897,9 @@ async function main() {
       // ── Update previous prices ──
       previousSpotPrice = exchanges.binance.price ?? spotPrice ?? previousSpotPrice;
       previousCoinbasePrice = exchanges.coinbase.price ?? previousCoinbasePrice;
+      previousKrakenPrice = exchanges.kraken.price ?? previousKrakenPrice;
       previousBybitPrice = exchanges.bybit.price ?? previousBybitPrice;
+      previousOkxPrice = exchanges.okx.price ?? previousOkxPrice;
       previousChainlinkPrice = chainlinkPrice ?? previousChainlinkPrice;
 
       // ── Snapshot CSV Logic (grava nos últimos segundos do candle) ──
@@ -910,8 +953,12 @@ async function main() {
           exchanges.binance.volume,
           exchanges.coinbase.price,
           exchanges.coinbase.volume,
+          exchanges.kraken.price,
+          exchanges.kraken.volume,
           exchanges.bybit.price,
           exchanges.bybit.volume,
+          exchanges.okx.price,
+          exchanges.okx.volume,
           oracleLagMs,
           binanceVsOracle,
           oracleSpreadPct,

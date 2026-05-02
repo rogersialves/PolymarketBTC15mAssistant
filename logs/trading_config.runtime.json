@@ -1,7 +1,7 @@
 {
   "version": 1,
   "operationalMode": "scalp_only_phase_1",
-  "savedAt": "2026-05-02T05:51:23.534Z",
+  "savedAt": "2026-05-02T08:44:35.140Z",
   "enabledIndicators5m": [
     "Scalp Force 5m"
   ],
@@ -27,7 +27,7 @@
       "minSharesFloor": 5,
       "maxEffectiveStakeUsd": 10,
       "enabled": true,
-      "liveMode": true
+      "liveMode": false
     },
     "Scalp Force 15m": {
       "stakeUsd": 5,

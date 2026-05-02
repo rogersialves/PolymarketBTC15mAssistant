@@ -131,18 +131,18 @@
 
           <!-- Groups side by side -->
           <div class="ind-body-row">
-            <div class="indicators-grid" id="dryIndicatorsGrid">
-              <div class="ind-row" title="Consenso (>55% bias claro)"><span class="ind-label">TA Predict</span><span class="ind-value" id="dval-taPredict">—</span></div>
-              <div class="ind-row" title="Heiken Ashi em candles 1m da Binance (não é o gráfico 5m do TradingView). Troca de mercado Polymarket não reinicia esta série — é o mesmo BTC."><span class="ind-label">Heiken Ashi (1m)</span><span class="ind-value" id="dval-heiken">—</span></div>
-              <div class="ind-row" title="Momentum (>70 OB, <30 OS)"><span class="ind-label">RSI</span><span class="ind-value" id="dval-rsi">—</span></div>
-              <div class="ind-row" title="Direção/Força"><span class="ind-label">MACD</span><span class="ind-value" id="dval-macd">—</span></div>
-              <div class="ind-row" title="Agressão micro (delta 1m e 3m)"><span class="ind-label">Delta 1/3</span><span class="ind-value" id="dval-delta">—</span></div>
-              <div class="ind-row" title="Âncora (UP/DOWN/FLAT)"><span class="ind-label">VWAP</span><span class="ind-value" id="dval-vwap">—</span></div>
-              <div class="ind-row" title="Limites (%B + Squeeze)"><span class="ind-label">Bollinger</span><span class="ind-value" id="dval-bollinger">—</span></div>
-              <div class="ind-row" title="Super oscilador"><span class="ind-label">Stoch RSI</span><span class="ind-value" id="dval-stochRsi">—</span></div>
-              <div class="ind-row" title="Rastreador clássico"><span class="ind-label">EMA 9/21</span><span class="ind-value" id="dval-ema">—</span></div>
-              <div class="ind-row" title="Dinheiro real (On-Balance Volume)"><span class="ind-label">OBV</span><span class="ind-value" id="dval-obv">—</span></div>
-              <div class="ind-row" title="Volatilidade média do período"><span class="ind-label">ATR</span><span class="ind-value" id="dval-atr">—</span></div>
+            <div class="indicators-grid" id="dryIndicatorsGrid" data-ta-source="binance">
+              <div class="ind-row" title="Consenso (>55% bias claro). Valores derivados das velas 1m (ver badge à direita)."><span class="ind-label">TA Predict</span><span class="ind-value" id="dval-taPredict">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Heiken Ashi em velas 1m da mesma fonte que RSI/MACD (badge). Não é o gráfico 5m do TradingView."><span class="ind-label">Heiken Ashi (1m)</span><span class="ind-value" id="dval-heiken">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Momentum (>70 OB, <30 OS)"><span class="ind-label">RSI</span><span class="ind-value" id="dval-rsi">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Direção/Força"><span class="ind-label">MACD</span><span class="ind-value" id="dval-macd">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Agressão micro (delta 1m e 3m)"><span class="ind-label">Delta 1/3</span><span class="ind-value" id="dval-delta">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Âncora (UP/DOWN/FLAT)"><span class="ind-label">VWAP</span><span class="ind-value" id="dval-vwap">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Limites (%B + Squeeze)"><span class="ind-label">Bollinger</span><span class="ind-value" id="dval-bollinger">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Super oscilador"><span class="ind-label">Stoch RSI</span><span class="ind-value" id="dval-stochRsi">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Rastreador clássico"><span class="ind-label">EMA 9/21</span><span class="ind-value" id="dval-ema">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Dinheiro real (On-Balance Volume)"><span class="ind-label">OBV</span><span class="ind-value" id="dval-obv">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
+              <div class="ind-row" title="Volatilidade média do período"><span class="ind-label">ATR</span><span class="ind-value" id="dval-atr">—</span><span class="ind-src-badge src-bn" data-role="ta-candle-source" title=""></span></div>
             </div>
 
             <div class="ind-vsep"></div>
@@ -162,22 +162,28 @@
             <div class="ind-vsep"></div>
 
             <div class="exchanges-section">
-              <div class="exchange-row"><span class="ex-name">Binance</span><span class="ex-price" id="dexBinancePrice">—</span><span class="ex-vol" id="dexBinanceVol">—</span></div>
-              <div class="exchange-row"><span class="ex-name">Coinbase</span><span class="ex-price" id="dexCoinbasePrice">—</span><span class="ex-vol" id="dexCoinbaseVol">—</span></div>
-              <div class="exchange-row"><span class="ex-name">Kraken</span><span class="ex-price" id="dexKrakenPrice">—</span><span class="ex-vol" id="dexKrakenVol">—</span></div>
+              <div class="exchange-row"><span class="ex-brand ex-brand--binance" aria-hidden="true"></span><span class="ex-name">Binance</span><span class="ex-price" id="dexBinancePrice">—</span><span class="ex-vol" id="dexBinanceVol">—</span></div>
+              <div class="exchange-row"><span class="ex-brand ex-brand--neutral" aria-hidden="true"></span><span class="ex-name">Coinbase</span><span class="ex-price" id="dexCoinbasePrice">—</span><span class="ex-vol" id="dexCoinbaseVol">—</span></div>
+              <div class="exchange-row"><span class="ex-brand ex-brand--neutral" aria-hidden="true"></span><span class="ex-name">Kraken</span><span class="ex-price" id="dexKrakenPrice">—</span><span class="ex-vol" id="dexKrakenVol">—</span></div>
+              <div class="exchange-row"><span class="ex-brand ex-brand--neutral" aria-hidden="true"></span><span class="ex-name">Bybit</span><span class="ex-price" id="dexBybitPrice">—</span><span class="ex-vol" id="dexBybitVol">—</span></div>
+              <div class="exchange-row"><span class="ex-brand ex-brand--okx" aria-hidden="true"></span><span class="ex-name">OKX</span><span class="ex-price" id="dexOkxPrice">—</span><span class="ex-vol" id="dexOkxVol">—</span></div>
               <div class="oracle-row">
                 <span class="label">Oracle Lag</span><span class="value" id="doracleLag">—</span>
                 <span class="label">Spread</span><span class="value" id="doracleSpread">—</span>
-                <span class="label">Bin vs Oracle</span><span class="value" id="dbinVsOracle">—</span>
+                <span class="label" id="dvsOracleLabel">Bin vs Oracle</span><span class="value" id="dbinVsOracle">—</span>
               </div>
             </div>
 
             <div class="ind-vsep"></div>
 
-            <div class="feed-sources-section" title="REST Binance (.com / .us) e oracle Chainlink — fontes da operação">
-              <div class="feed-source-row"><span class="feed-name">Binance.com</span><span class="feed-status" id="dfeedBinanceCom">—</span></div>
-              <div class="feed-source-row"><span class="feed-name">Binance.us</span><span class="feed-status" id="dfeedBinanceUs">—</span></div>
-              <div class="feed-source-row"><span class="feed-name">Chainlink</span><span class="feed-status" id="dfeedChainlink">—</span></div>
+            <div class="feed-sources-section" title="REST Binance (.com / .us), tickers Coinbase/Kraken/Bybit/OKX e oracle Chainlink. O “há Xs” é o tempo desde o último fetch OK desta linha — não é o período das velas 1m da TA.">
+              <div class="feed-source-row"><span class="feed-brand feed-brand--binance" aria-hidden="true"></span><span class="feed-name">Binance.com</span><span class="feed-status" id="dfeedBinanceCom">—</span></div>
+              <div class="feed-source-row"><span class="feed-brand feed-brand--binance" aria-hidden="true"></span><span class="feed-name">Binance.us</span><span class="feed-status" id="dfeedBinanceUs">—</span></div>
+              <div class="feed-source-row"><span class="feed-brand feed-brand--neutral" aria-hidden="true"></span><span class="feed-name">Coinbase</span><span class="feed-status" id="dfeedCoinbaseTicker">—</span></div>
+              <div class="feed-source-row"><span class="feed-brand feed-brand--neutral" aria-hidden="true"></span><span class="feed-name">Kraken</span><span class="feed-status" id="dfeedKrakenTicker">—</span></div>
+              <div class="feed-source-row"><span class="feed-brand feed-brand--neutral" aria-hidden="true"></span><span class="feed-name">Bybit</span><span class="feed-status" id="dfeedBybitTicker">—</span></div>
+              <div class="feed-source-row"><span class="feed-brand feed-brand--okx" aria-hidden="true"></span><span class="feed-name">OKX</span><span class="feed-status" id="dfeedOkxTicker">—</span></div>
+              <div class="feed-source-row"><span class="feed-brand feed-brand--chainlink" aria-hidden="true"></span><span class="feed-name">Chainlink</span><span class="feed-status" id="dfeedChainlink">—</span></div>
             </div>
           </div>
         </section>

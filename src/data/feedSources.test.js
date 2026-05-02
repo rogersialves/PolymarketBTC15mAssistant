@@ -100,6 +100,10 @@ test("buildFeedSourcesSnapshot merges binance override", () => {
   });
   assert.equal(snap.binanceCom.status, "ok");
   assert.equal(snap.binanceUs.status, "unknown");
+  assert.ok(snap.coinbaseTicker && typeof snap.coinbaseTicker.status === "string");
+  assert.ok(snap.krakenTicker && typeof snap.krakenTicker.status === "string");
+  assert.ok(snap.bybitTicker && typeof snap.bybitTicker.status === "string");
+  assert.ok(snap.okxTicker && typeof snap.okxTicker.status === "string");
 });
 
 test("buildChainlinkFeedStatus ok with RPC stub in CONFIG", () => {

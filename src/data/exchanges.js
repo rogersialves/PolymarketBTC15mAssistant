@@ -5,8 +5,36 @@ import { fetchWithTimeout } from "../net/http.js";
 const cache = {
   binance: { price: null, volume: null },
   coinbase: { price: null, volume: null },
-  kraken: { price: null, volume: null }
+  kraken: { price: null, volume: null },
+  bybit: { price: null, volume: null },
+  okx: { price: null, volume: null }
 };
+
+/** Last REST ticker outcome per exchange (for feedSources status rows). */
+const tickerFeedMeta = new Map(); // name → { lastOkAt, lastLatencyMs, lastError }
+function noteTickerOk(name, latencyMs) {
+  tickerFeedMeta.set(name, { lastOkAt: Date.now(), lastLatencyMs: latencyMs ?? null, lastError: null });
+}
+function noteTickerFail(name, err) {
+  const prev = tickerFeedMeta.get(name) || {};
+  tickerFeedMeta.set(name, {
+    lastOkAt: prev.lastOkAt ?? null,
+    lastLatencyMs: prev.lastLatencyMs ?? null,
+    lastError: String(err?.message || err || "error").slice(0, 200)
+  });
+}
+
+/**
+ * Raw meta for `buildFeedSourcesSnapshot` (REST tickers: Coinbase, Kraken, Bybit, OKX).
+ * @returns {Record<string, { lastOkAt: number|null, lastLatencyMs: number|null, lastError: string|null }>}
+ */
+export function getExchangeTickerFeedMetaSnapshot() {
+  const out = {};
+  for (const name of ["coinbase", "kraken", "bybit", "okx"]) {
+    out[name] = tickerFeedMeta.get(name) || { lastOkAt: null, lastLatencyMs: null, lastError: null };
+  }
+  return out;
+}
 
 let lastFetch = 0;
 let tickerInFlight = null;
@@ -70,6 +98,30 @@ export async function fetchKrakenTicker() {
   return { price: toNumber(ticker.c[0]), volume: toNumber(ticker.v[1]) };
 }
 
+export async function fetchBybitTicker() {
+  const res = await fetchWithTimeout("https://api.bybit.com/v5/market/tickers?category=spot&symbol=BTCUSDT", {}, {
+    timeoutMs: EXCHANGE_TICKER_TIMEOUT_MS,
+    label: "Bybit ticker"
+  });
+  if (!res.ok) throw new Error(`Bybit HTTP ${res.status}`);
+  const data = await res.json();
+  const row = data?.result?.list?.[0];
+  if (!row) throw new Error("Bybit empty list");
+  return { price: toNumber(row.lastPrice), volume: toNumber(row.volume24h) };
+}
+
+export async function fetchOkxTicker() {
+  const res = await fetchWithTimeout("https://www.okx.com/api/v5/market/ticker?instId=BTC-USDT", {}, {
+    timeoutMs: EXCHANGE_TICKER_TIMEOUT_MS,
+    label: "OKX ticker"
+  });
+  if (!res.ok) throw new Error(`OKX HTTP ${res.status}`);
+  const data = await res.json();
+  const row = data?.data?.[0];
+  if (!row) throw new Error("OKX empty data");
+  return { price: toNumber(row.last), volume: toNumber(row.vol24h) };
+}
+
 export function getExchangeTickers() {
   if (Date.now() - lastFetch > CONFIG.exchangeTickerCacheMs && !tickerInFlight) {
     lastFetch = Date.now();
@@ -81,18 +133,60 @@ export function getExchangeTickers() {
       .then(v => { cache.binance = v; })
       .catch(e => { console.warn(`⚠️  Binance ticker falhou: ${e?.message || e}`); })
       .then(() => {
-        // After Binance, attempt Coinbase only if not in cooldown
         if (!isTickerAvailable("coinbase")) return null;
+        const t0 = Date.now();
         return fetchCoinbaseTicker()
-          .then(v => { cache.coinbase = v; })
-          .catch(e => { markTickerFailed("coinbase", e); console.warn(`⚠️  Coinbase ticker falhou: ${e?.message || e}`); });
+          .then(v => {
+            cache.coinbase = v;
+            noteTickerOk("coinbase", Date.now() - t0);
+          })
+          .catch(e => {
+            markTickerFailed("coinbase", e);
+            noteTickerFail("coinbase", e);
+            console.warn(`⚠️  Coinbase ticker falhou: ${e?.message || e}`);
+          });
       })
       .then(() => {
-        // After Coinbase, attempt Kraken only if not in cooldown
         if (!isTickerAvailable("kraken")) return null;
+        const t0 = Date.now();
         return fetchKrakenTicker()
-          .then(v => { cache.kraken = v; })
-          .catch(e => { markTickerFailed("kraken", e); console.warn(`⚠️  Kraken ticker falhou: ${e?.message || e}`); });
+          .then(v => {
+            cache.kraken = v;
+            noteTickerOk("kraken", Date.now() - t0);
+          })
+          .catch(e => {
+            markTickerFailed("kraken", e);
+            noteTickerFail("kraken", e);
+            console.warn(`⚠️  Kraken ticker falhou: ${e?.message || e}`);
+          });
+      })
+      .then(() => {
+        if (!isTickerAvailable("bybit")) return null;
+        const t0 = Date.now();
+        return fetchBybitTicker()
+          .then(v => {
+            cache.bybit = v;
+            noteTickerOk("bybit", Date.now() - t0);
+          })
+          .catch(e => {
+            markTickerFailed("bybit", e);
+            noteTickerFail("bybit", e);
+            console.warn(`⚠️  Bybit ticker falhou: ${e?.message || e}`);
+          });
+      })
+      .then(() => {
+        if (!isTickerAvailable("okx")) return null;
+        const t0 = Date.now();
+        return fetchOkxTicker()
+          .then(v => {
+            cache.okx = v;
+            noteTickerOk("okx", Date.now() - t0);
+          })
+          .catch(e => {
+            markTickerFailed("okx", e);
+            noteTickerFail("okx", e);
+            console.warn(`⚠️  OKX ticker falhou: ${e?.message || e}`);
+          });
       })
       .finally(() => { tickerInFlight = null; });
   }

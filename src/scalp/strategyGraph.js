@@ -186,7 +186,7 @@ export function embedConfigIntoScalpGraph(graph, cfg) {
   if (!g || !Array.isArray(g.nodes)) return buildScalpStrategyGraphFromConfig(cfg, graph?.indicatorName || "");
   const c = cfg && typeof cfg === "object" ? cfg : {};
   const tfMin = String(graph?.indicatorName || "").includes("15m") ? 15 : 5;
-  const defaultDirectionSources = ["binance", "coinbase", "kraken"];
+  const defaultDirectionSources = ["binance", "coinbase", "kraken", "bybit", "okx"];
   const defaultStrengthSignals = tfMin === 15
     ? ["Heiken+OBV", "5+ Agree", "Delta 3m"]
     : ["Heiken+OBV", "5+ Agree"];

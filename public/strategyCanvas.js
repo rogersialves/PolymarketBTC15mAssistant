@@ -4,7 +4,7 @@
  * nós ancorados em colunas, conexões SVG curvas entre portas.
  *
  * Cada nó é uma "card de canvas" com controlos inline:
- *  - Direção: checkboxes de fontes (binance/coinbase/kraken) usadas na mediana.
+ *  - Direção: checkboxes de fontes (bolsas spot) usadas na mediana.
  *  - Confirmação: lista de sinais que devem confirmar a direção (Heiken+OBV, etc.).
  *  - Janela de entrada: segundos.
  *  - Faixa de contrato: min/max %.
@@ -53,7 +53,9 @@
   const ALL_DIR_SOURCES = [
     { id: "binance", label: "Binance" },
     { id: "coinbase", label: "Coinbase" },
-    { id: "kraken", label: "Kraken" }
+    { id: "kraken", label: "Kraken" },
+    { id: "bybit", label: "Bybit" },
+    { id: "okx", label: "OKX" }
   ];
   const STRENGTH_SIGNALS_5M = [
     { id: "Heiken+OBV", label: "Heiken+OBV" },
@@ -116,7 +118,7 @@
     const id = n.id;
     const d = n.data || {};
     if (id === NODE.ENTRY_DIRECTION) {
-      const sel = new Set(Array.isArray(d.directionSources) ? d.directionSources : ["binance", "coinbase", "kraken"]);
+      const sel = new Set(Array.isArray(d.directionSources) ? d.directionSources : ["binance", "coinbase", "kraken", "bybit", "okx"]);
       return `
         <p class="strategy-node-body">Mediana das bolsas vs <em>Price to Beat</em>. Marque as fontes consideradas na mediana.</p>
         ${fieldChecklist(ind, id, "directionSources", ALL_DIR_SOURCES, sel)}

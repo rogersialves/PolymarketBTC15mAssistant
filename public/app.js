@@ -219,12 +219,19 @@ function renderRealtime(d) {
   renderExchange("Binance", ex.binance);
   renderExchange("Coinbase", ex.coinbase);
   renderExchange("Kraken", ex.kraken);
+  renderExchange("Bybit", ex.bybit);
+  renderExchange("Okx", ex.okx);
 
   // Oracle
   const oracle = d.oracle;
   document.getElementById("oracleLag").textContent = oracle.lagMs !== null ? `${(oracle.lagMs / 1000).toFixed(1)}s` : "—";
   document.getElementById("oracleSpread").textContent = oracle.spreadPct !== null ? fmtPct(oracle.spreadPct, 3) : "—";
-  const bvo = oracle.binanceVsOracle;
+  const src = oracle.indicatorCandleSource || "binance";
+  const labEl = document.getElementById("binVsOracleLabel");
+  if (labEl) {
+    labEl.textContent = src === "okx" ? "OKX vs Oracle" : src === "binance_fallback" ? "Bin vs Oracle (fallback)" : "Bin vs Oracle";
+  }
+  const bvo = src === "okx" ? oracle.taVsOracle : oracle.binanceVsOracle;
   const bvoEl = document.getElementById("binVsOracle");
   bvoEl.textContent = bvo !== null ? `$${bvo > 0 ? "+" : ""}${bvo.toFixed(2)}` : "—";
   bvoEl.className = `value ${colorClass(bvo)}`;
@@ -378,9 +385,10 @@ function shortInd(name) {
 }
 
 function renderExchange(name, data) {
-  const id = name.toLowerCase();
+  if (!data) return;
   const priceEl = document.getElementById(`ex${name}Price`);
   const volEl = document.getElementById(`ex${name}Vol`);
+  if (!priceEl || !volEl) return;
   priceEl.textContent = data.price !== null ? `$${fmt(data.price, 0)}` : "—";
   volEl.textContent = data.volume !== null ? `Vol: ${fmt(data.volume, 1)} BTC` : "—";
 }
