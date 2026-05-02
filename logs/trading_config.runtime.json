@@ -1,7 +1,7 @@
 {
   "version": 1,
   "operationalMode": "scalp_only_phase_1",
-  "savedAt": "2026-05-02T08:44:35.140Z",
+  "savedAt": "2026-05-02T10:34:38.171Z",
   "enabledIndicators5m": [
     "Scalp Force 5m"
   ],
@@ -10,7 +10,7 @@
   ],
   "indicatorConfigs": {
     "Scalp Force 5m": {
-      "stakeUsd": 5,
+      "stakeUsd": 1,
       "entryMinPct": 51,
       "entryMaxPct": 55,
       "takeProfitPct": 75,
@@ -27,10 +27,10 @@
       "minSharesFloor": 5,
       "maxEffectiveStakeUsd": 10,
       "enabled": true,
-      "liveMode": false
+      "liveMode": true
     },
     "Scalp Force 15m": {
-      "stakeUsd": 5,
+      "stakeUsd": 1,
       "entryMinPct": 51,
       "entryMaxPct": 55,
       "takeProfitPct": 75,
@@ -66,9 +66,10 @@
             "body": "Mediana das bolsas vs Price to Beat → lado UP ou DOWN.",
             "data": {
               "directionSources": [
-                "binance",
                 "coinbase",
-                "kraken"
+                "kraken",
+                "bybit",
+                "okx"
               ]
             }
           },
@@ -109,7 +110,7 @@
             "title": "Tamanho / execução",
             "body": "Stake $5 · min shares 5 · cap $10 · max entries/candle 5.",
             "data": {
-              "stakeUsd": 5,
+              "stakeUsd": 1,
               "minSharesFloor": 5,
               "maxEffectiveStakeUsd": 10,
               "maxEntriesPerCandle": 5
@@ -190,9 +191,10 @@
             "body": "Mediana das bolsas vs Price to Beat → lado UP ou DOWN.",
             "data": {
               "directionSources": [
-                "binance",
                 "coinbase",
-                "kraken"
+                "kraken",
+                "bybit",
+                "okx"
               ]
             }
           },
@@ -234,7 +236,7 @@
             "title": "Tamanho / execução",
             "body": "Stake $5 · min shares 5 · cap $10 · max entries/candle 5.",
             "data": {
-              "stakeUsd": 5,
+              "stakeUsd": 1,
               "minSharesFloor": 5,
               "maxEffectiveStakeUsd": 10,
               "maxEntriesPerCandle": 5

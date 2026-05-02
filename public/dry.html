@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="dry.css?v=20260502-strategy-canvas-flow">
+  <link rel="stylesheet" href="dry.css?v=20260502-canvas-toolbar">
 </head>
 <body data-page="dry">
   <!-- ── Top Navigation ── -->
@@ -125,6 +125,10 @@
               <span class="label">Time Left:</span>
               <span id="dryDashTimeLeft" class="timer">--:--</span>
             </div>
+            <div class="dry-ta-fresh-row" title="Relógio do teu browser. Se “há Xs” subir sempre (ex.: 8s, 15s) sem voltar perto de 0, o motor pode estar a saltar ticks (tick anterior ainda a correr) ou a rede está lenta. Velas 1m só mudam de forma óbvia no virar do minuto; entre minutos o RSI pode mudar devagar.">
+              <span class="label">TA (último tick):</span>
+              <span id="dryTaTickAge" class="value dim">—</span>
+            </div>
           </div>
 
           <div class="divider"></div>
@@ -152,6 +156,10 @@
                 <span class="up-price">↑ UP <span id="dpolyUp">—</span></span>
                 <span class="poly-sep">|</span>
                 <span class="down-price">↓ DOWN <span id="dpolyDown">—</span></span>
+              </div>
+              <div class="poly-fresh-row" title="UP/DOWN: idade do último fetch CLOB no tick. Current: último pacote WS Polymarket live (recebido no servidor). O contador atualiza a cada segundo no browser.">
+                <span class="poly-fresh-bit"><span class="label">UP/DOWN</span> <span id="dryPolyUpDownAge" class="value dim">—</span></span>
+                <span class="poly-fresh-bit"><span class="label">Current</span> <span id="dryPolyCurrentAge" class="value dim">—</span></span>
               </div>
               <div class="poly-row"><span class="label">Liquidity</span><span class="value" id="dpolyLiquidity">—</span></div>
               <div class="poly-row"><span class="label">Price to Beat</span><span class="value" id="dpriceToBeat">—</span></div>
@@ -225,6 +233,6 @@
     </section>
   </main>
 
-  <script src="dry.js?v=20260502-strategy-canvas-flow"></script>
+  <script src="dry.js?v=20260502-canvas-toolbar"></script>
 </body>
 </html>

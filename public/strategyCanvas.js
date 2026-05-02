@@ -102,6 +102,46 @@
     ]);
   }
 
+  /** Texto de ajuda (HTML interno) alinhado a `advanceScalp` / `scalpForce.js`. */
+  function buildNodeOperationDetails(nodeId, indicatorName) {
+    const is15 = String(indicatorName || "").includes("15m");
+    const strengthDelta = is15
+      ? "No <strong>15m</strong>, o motor exige também <strong>Delta 3m</strong> na mesma direção."
+      : "No <strong>5m</strong>, não entra o requisito extra de Delta 3m na função <code>strengthAgrees</code> (só Heiken+OBV e 5+ Agree).";
+    const inner = {
+      [NODE.ENTRY_DIRECTION]: `
+        <p>O servidor obtém o preço spot de cada bolsa marcada, descarta valores inválidos e calcula a <strong>mediana</strong>.</p>
+        <p>Compara essa mediana com o <strong>Price to Beat</strong> (PTB) do mercado: mediana ≥ PTB → lado <strong>UP</strong>; caso contrário <strong>DOWN</strong>. Não usa a média aritmética.</p>
+        <p>Este nó só define o <em>lado candidato</em>. A entrada real só ocorre se os nós Confirmação, Janela, Faixa e Sizing também passarem.</p>`,
+      [NODE.ENTRY_STRENGTH]: `
+        <p>Depois de saber UP ou DOWN, o motor chama <code>strengthAgrees</code>: todos os sinais obrigatórios para o timeframe têm de devolver <strong>exactamente</strong> esse lado.</p>
+        <p><strong>Heiken+OBV</strong> e <strong>5+ Agree</strong> são sempre obrigatórios. ${strengthDelta}</p>
+        <p>Os checkboxes refletem a configuração guardada no grafo; a lista efectiva no código do motor segue a regra acima por timeframe.</p>`,
+      [NODE.ENTRY_WINDOW]: `
+        <p>O servidor envia <code>candleElapsedMs</code> (tempo desde o início do candle). Este valor em <strong>segundos</strong> define o limite: só há entrada se o tempo decorrido for ≤ janela × 1000 ms.</p>
+        <p>Se a direcção e a força estiverem ok mas o relógio já passou do limite, o estado fica fora da janela — não abre nova posição até ao próximo contexto válido.</p>`,
+      [NODE.ENTRY_BAND]: `
+        <p>Usa o preço do contrato Polymarket do lado escolhido (token UP ou DOWN, entre 0 e 1), converte para <strong>percentagem de cêntimos</strong> (preço × 100) e compara com <strong>Mín %</strong> e <strong>Máx %</strong>.</p>
+        <p>Só entra se o preço estiver <em>dentro</em> da faixa. Isto evita comprar quando o mercado está demasiado “barato” ou “caro” vs. a tua zona operacional.</p>`,
+      [NODE.SIZING]: `
+        <p><strong>Stake (USD)</strong> é o mínimo em dólares; o motor calcula shares ≈ stake ÷ preço do contrato e <strong>sobe</strong> o valor se precisar de cumprir <strong>Min shares</strong> (mínimo da CLOB).</p>
+        <p><strong>Cap (USD)</strong> limita o stake efectivo depois desse ajuste. <strong>Max entries / candle</strong> impede mais de N entradas completas no mesmo candle (reentradas após TP contam).</p>`,
+      [NODE.EXIT_TP]: `
+        <p>Durante <code>IN_POSITION</code>, o motor acompanha o preço do contrato em cêntimos (<code>pct</code>). <strong>TP %</strong> é o alvo em cêntimos do contrato: ao atingir ou ultrapassar, dispara a lógica de TP.</p>
+        <p><strong>Modo exit</strong>: fecha logo que o alvo seja atingido. <strong>Modo trail</strong>: ao atingir o alvo “arma” protecção — o stop segue o máximo desde a entrada menos <strong>Trail ¢</strong>; se o preço cair até lá, sai com trailing stop.</p>
+        <p><strong>Force exit</strong> ligado: com TP em modo <em>trail</em> já armado, se os sinais de força <strong>deixarem</strong> de alinhar com o lado da posição durante vários ticks seguidos (<strong>Fail ticks</strong>), o motor força saída (<code>tp_force_fail</code>) para não ficar preso quando o contexto técnico muda.</p>`,
+      [NODE.EXIT_PROTECT]: `
+        <p><strong>Min exit %</strong>: piso em cêntimos do contrato para várias saídas (timeout, decay, hold favorável). Abaixo disto o motor tende a forçar saída “dura” em vez de saída mínima.</p>
+        <p><strong>Trail arm ¢</strong> / <strong>Trail stop ¢</strong>: o stop de protecção só <em>arma</em> depois do contrato subir pelo menos “arm” acima do preço de entrada; o stop segue o máximo desde a entrada menos o “cushion” (stop).</p>
+        <p><strong>Hold máx (s)</strong>: prazo máximo em posição; findo o prazo, avalia timeout (com regra de “hold favorável” se BTC e contrato ainda ajudam). Outras protecções (hard stop, decay por BTC vs PTB) usam defaults no motor além destes campos.</p>`
+    }[nodeId];
+    if (!inner) return "";
+    return `<details class="strategy-node-details">
+      <summary class="strategy-node-details-sum">Detalhe — operação no motor Scalp</summary>
+      <div class="strategy-node-details-inner">${inner}</div>
+    </details>`;
+  }
+
   function fieldChecklist(ind, nodeId, field, options, selectedSet) {
     return `<div class="strategy-checklist" data-indicator="${esc(ind)}" data-node-id="${esc(nodeId)}" data-field="${esc(field)}">
       ${options.map(opt => {
@@ -121,6 +161,7 @@
       const sel = new Set(Array.isArray(d.directionSources) ? d.directionSources : ["binance", "coinbase", "kraken", "bybit", "okx"]);
       return `
         <p class="strategy-node-body">Mediana das bolsas vs <em>Price to Beat</em>. Marque as fontes consideradas na mediana.</p>
+        ${buildNodeOperationDetails(NODE.ENTRY_DIRECTION, indicatorName)}
         ${fieldChecklist(ind, id, "directionSources", ALL_DIR_SOURCES, sel)}
         <p class="strategy-node-note">Saída: <span class="strategy-pill up">UP</span> ou <span class="strategy-pill down">DOWN</span> conforme mediana ≥ PTB.</p>
       `;
@@ -133,12 +174,14 @@
       const sel = new Set(Array.isArray(d.requiredStrengthSignals) ? d.requiredStrengthSignals : fallback);
       return `
         <p class="strategy-node-body">Sinais que precisam confirmar a direção para armar entrada.</p>
+        ${buildNodeOperationDetails(NODE.ENTRY_STRENGTH, indicatorName)}
         ${fieldChecklist(ind, id, "requiredStrengthSignals", tfList, sel)}
       `;
     }
     if (id === NODE.ENTRY_WINDOW) {
       return `
         <p class="strategy-node-body">Tempo após abertura do candle em que ainda aceitamos entrar.</p>
+        ${buildNodeOperationDetails(NODE.ENTRY_WINDOW, indicatorName)}
         <div class="strategy-fields-row">
           ${fieldNum(ind, id, "entryOpenWindowSec", "Janela (segundos)", d.entryOpenWindowSec, 1, 1, 3600)}
         </div>
@@ -147,6 +190,7 @@
     if (id === NODE.ENTRY_BAND) {
       return `
         <p class="strategy-node-body">Faixa do preço do contrato (em %) onde entradas são permitidas.</p>
+        ${buildNodeOperationDetails(NODE.ENTRY_BAND, indicatorName)}
         <div class="strategy-fields-row">
           ${fieldNum(ind, id, "entryMinPct", "Mín %", d.entryMinPct, 0.5, 0, 100)}
           ${fieldNum(ind, id, "entryMaxPct", "Máx %", d.entryMaxPct, 0.5, 0, 100)}
@@ -156,6 +200,7 @@
     if (id === NODE.SIZING) {
       return `
         <p class="strategy-node-body">Tamanho base e limites de execução.</p>
+        ${buildNodeOperationDetails(NODE.SIZING, indicatorName)}
         <div class="strategy-fields-row">
           ${fieldNum(ind, id, "stakeUsd", "Stake (USD)", d.stakeUsd, 0.5, 0.1, 10000)}
           ${fieldNum(ind, id, "minSharesFloor", "Min shares", d.minSharesFloor, 1, 0, 10000)}
@@ -167,6 +212,7 @@
     if (id === NODE.EXIT_TP) {
       return `
         <p class="strategy-node-body">Saída por take-profit. Modo <em>trail</em> deixa correr.</p>
+        ${buildNodeOperationDetails(NODE.EXIT_TP, indicatorName)}
         <div class="strategy-fields-row">
           ${fieldNum(ind, id, "takeProfitPct", "TP %", d.takeProfitPct, 0.5, 0, 100)}
           ${fieldSelect(ind, id, "tpExitMode", "Modo", d.tpExitMode || "exit", [
@@ -181,6 +227,7 @@
     if (id === NODE.EXIT_PROTECT) {
       return `
         <p class="strategy-node-body">Limites mínimos, trailing-stop e tempo máximo de hold.</p>
+        ${buildNodeOperationDetails(NODE.EXIT_PROTECT, indicatorName)}
         <div class="strategy-fields-row">
           ${fieldNum(ind, id, "minExitPct", "Min exit %", d.minExitPct, 0.5, 0, 100)}
           ${fieldNum(ind, id, "trailingArmingCents", "Trail arm ¢", d.trailingArmingCents, 0.5, 0, 100)}
@@ -206,12 +253,34 @@
     </article>`;
   }
 
-  function renderWorkspace(indicatorName, graph) {
+  function renderWorkspace(indicatorName, graph, tf, ui) {
     const nodes = graph?.nodes || [];
-    return `<div class="strategy-workspace" data-scalp-indicator="${esc(indicatorName)}">
+    const st = ui && typeof ui === "object" ? ui : {};
+    const enabled = Boolean(st.enabled);
+    const liveMode = Boolean(st.liveMode);
+    const liveTitle = liveMode
+      ? "LIVE: ordens reais neste Scalp — clicar para voltar ao SIM"
+      : "SIM: simulado — clicar para ativar LIVE (ordens reais)";
+    const scalpBtnLabel = enabled ? "Scalp ON" : "Scalp OFF";
+    return `<div class="strategy-workspace" data-scalp-indicator="${esc(indicatorName)}" data-tf="${esc(tf)}">
       <header class="strategy-workspace-head">
-        <h4 class="strategy-workspace-title">Canvas Workspace · ${esc(indicatorName)}</h4>
-        <span class="strategy-status-badge"><span class="strategy-status-dot"></span>Status: <strong>Valid</strong></span>
+        <div class="strategy-workspace-head-left">
+          <h4 class="strategy-workspace-title">Canvas Workspace · ${esc(indicatorName)}</h4>
+          <span class="strategy-status-badge"><span class="strategy-status-dot"></span>Status: <strong>Valid</strong></span>
+        </div>
+        <div class="strategy-workspace-toolbar" role="toolbar" aria-label="Controlo do canvas">
+          <button type="button" class="strategy-toolbar-btn strategy-toolbar-save"
+            onclick="event.stopPropagation();(window.saveConfig)&&window.saveConfig();"
+            title="Gravar estratégia (canvas), parâmetros e modo no servidor">💾 Salvar</button>
+          <span class="config-ind-live-pill strategy-toolbar-live ${liveMode ? "on" : ""}" data-indicator="${esc(indicatorName)}"
+            onclick="event.stopPropagation();(window.toggleIndicatorLive)&&window.toggleIndicatorLive(this);"
+            title="${esc(liveTitle)}">${liveMode ? "⚡LIVE" : "SIM"}</span>
+          <button type="button" class="strategy-toolbar-scalp ${enabled ? "is-on" : "is-off"}"
+            data-scalp-toggle="${esc(indicatorName)}" data-tf="${esc(tf)}"
+            onclick="event.stopPropagation();(window.toggleScalpForceFromCanvas)&&window.toggleScalpForceFromCanvas(this);"
+            aria-pressed="${enabled ? "true" : "false"}"
+            title="Ativar ou desativar Scalp Force neste timeframe (5m / 15m)">${esc(scalpBtnLabel)}</button>
+        </div>
       </header>
       <div class="strategy-canvas-grid" role="group" aria-label="Fluxo de estratégia">
         <svg class="strategy-edges-layer" aria-hidden="true" preserveAspectRatio="none"></svg>
@@ -323,12 +392,18 @@
     if (g5) currentGraphsByIndicator[SCALP_5M] = g5;
     if (g15) currentGraphsByIndicator[SCALP_15M] = g15;
 
+    const cfgInd = cfg.indicatorConfigs || {};
+    const en5m = (cfg.enabledIndicators5m || []).includes(SCALP_5M);
+    const en15m = (cfg.enabledIndicators15m || []).includes(SCALP_15M);
+    const live5m = Boolean(cfgInd[SCALP_5M]?.liveMode);
+    const live15m = Boolean(cfgInd[SCALP_15M]?.liveMode);
+
     root.innerHTML = `
       <div class="strategy-builder-card strategy-builder-fullwidth">
         <div class="strategy-builder-head">
           <div>
             <h3 class="strategy-builder-title">Construtor de estratégia (Scalp)</h3>
-            <p class="strategy-builder-sub">Cada mercado BTC tem uma estratégia fixa. Clique no mercado para abrir o canvas e editar Direção, Confirmação, Janela, Faixa, Sizing e Saídas.</p>
+            <p class="strategy-builder-sub">Cada mercado BTC tem uma estratégia fixa. O <strong>canvas</strong> (nós e ligações) é a fonte de verdade ao gravar — use o topo do workspace para Salvar, LIVE por Scalp e ligar/desligar o Scalp Force.</p>
           </div>
           <span class="strategy-valid-badge" title="Schema v1">Valid · v1</span>
         </div>
@@ -347,16 +422,21 @@
         <p class="strategy-hint-bar">Slugs fora de <code>btc-updown-5m</code> / <code>btc-updown-15m</code> não são filtrados (legado). Cada Scalp opera apenas no seu mercado.</p>
         <div class="strategy-canvas-stage">
           <div class="strategy-canvas-panel" data-market="5m" hidden aria-hidden="true">
-            ${renderWorkspace(SCALP_5M, g5)}
+            ${renderWorkspace(SCALP_5M, g5, "5m", { enabled: en5m, liveMode: live5m })}
           </div>
           <div class="strategy-canvas-panel" data-market="15m" hidden aria-hidden="true">
-            ${renderWorkspace(SCALP_15M, g15)}
+            ${renderWorkspace(SCALP_15M, g15, "15m", { enabled: en15m, liveMode: live15m })}
           </div>
         </div>
       </div>
     `;
     wireMarketStrip(root);
     setupResize(root);
+    root.querySelectorAll(".strategy-node-input[data-node-id=\"sizing\"][data-field=\"stakeUsd\"]").forEach(inp => {
+      inp.addEventListener("input", () => {
+        if (typeof window.syncScalpStakeHeaderFromCanvas === "function") window.syncScalpStakeHeaderFromCanvas();
+      });
+    });
     if (!window.__strategyCanvasResizeBound) {
       window.addEventListener("resize", () => {
         root.querySelectorAll(".strategy-canvas-panel:not([hidden])").forEach(p => redrawEdgesFor(p));

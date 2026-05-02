@@ -814,7 +814,15 @@ export class PolyTrader {
         // Per-trade errors are non-fatal
       }
 
-      if (changed) updated++;
+      if (changed) {
+        updated++;
+        // Postgres flush only sends newRecords (past _flushedLength) + _mutatedRecords.
+        // refreshTradeResults mutates rows already on disk — mark dirty so upsert runs.
+        const idx = this.orderHistory.indexOf(trade);
+        if (idx >= 0 && idx < this._flushedLength && !this._mutatedRecords.includes(trade)) {
+          this._mutatedRecords.push(trade);
+        }
+      }
     }
     if (updated > 0) this._saveHistory();
     return updated;

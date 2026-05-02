@@ -7,6 +7,9 @@
  * loop AND from the smoke-test harness with deterministic fixtures.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+
 export const SCALP_STATUS = Object.freeze({
   IDLE: "idle",
   ARMED: "armed",
@@ -45,8 +48,47 @@ export const SCALP_CSV_HEADER = [
   "take_profit_pct",
   "min_exit_pct",
   "entry_open_window_sec",
-  "max_hold_sec"
+  "max_hold_sec",
+  "token_id",
+  "order_id"
 ];
+
+/**
+ * Rewrites scalp_trades_*.csv when an older header omits token_id/order_id so
+ * new rows align with SCALP_CSV_HEADER and wallet readers can show tokens.
+ */
+export function migrateScalpTradesCsvIfNeeded(csvPath, targetHeader = SCALP_CSV_HEADER) {
+  if (!csvPath || !fs.existsSync(csvPath)) return;
+  let raw;
+  try {
+    raw = fs.readFileSync(csvPath, "utf8").trim();
+  } catch {
+    return;
+  }
+  if (!raw) return;
+  const lines = raw.split(/\n/).map((l) => l.replace(/\r$/, ""));
+  const header = lines[0]?.split(",") || [];
+  if (header.includes("token_id") && header.includes("order_id")) {
+    if (header.length === targetHeader.length && targetHeader.every((h, i) => header[i] === h)) return;
+  }
+  const byName = Object.fromEntries(header.map((h, j) => [h, j]));
+  const outLines = [targetHeader.join(",")];
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const cols = line.split(",");
+    const row = targetHeader.map((h) => {
+      const j = byName[h];
+      return j !== undefined && j < cols.length ? cols[j] : "";
+    });
+    outLines.push(row.join(","));
+  }
+  const dir = path.dirname(csvPath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${csvPath}.migrate.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, `${outLines.join("\n")}\n`, "utf8");
+  fs.renameSync(tmp, csvPath);
+}
 
 export function createScalpRuntime(indicatorName, timeframeMinutes) {
   return {
@@ -875,7 +917,9 @@ export function closedTradeToCsvRow(trade) {
     trade.takeProfitPct,
     trade.minExitPct,
     trade.entryOpenWindowSec,
-    trade.maxHoldSec
+    trade.maxHoldSec,
+    trade.tokenId || trade.token_id || "",
+    trade.orderId || trade.order_id || ""
   ];
 }
 

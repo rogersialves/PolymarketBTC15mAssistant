@@ -23,6 +23,75 @@ let scalpWalletData = {}; // Stored by indicator name for scalp wallet modal
 let currentDryRunMode = true; // Mirrors polyTrader.dryRun from server payload
 const MODAL_HISTORY_LIMIT = 500;
 
+/** Último `indicatorTickAt` recebido por timeframe (ms servidor). */
+const _indicatorTickAtMs = { "5m": null, "15m": null };
+let _indicatorTickIntervalId = null;
+
+function ensureIndicatorTickClock() {
+  if (_indicatorTickIntervalId) return;
+  _indicatorTickIntervalId = setInterval(() => {
+    updateIndicatorTickDisplay();
+    updatePolyFreshDisplay();
+  }, 1000);
+}
+
+function updateIndicatorTickDisplay() {
+  const el = document.getElementById("dryTaTickAge");
+  if (!el) return;
+  const ms = _indicatorTickAtMs[activeTf];
+  if (ms == null || !Number.isFinite(ms)) {
+    el.textContent = "—";
+    return;
+  }
+  const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  const clock = new Date(ms).toLocaleTimeString("pt-BR", { hour12: false });
+  const d = latestData[activeTf];
+  const dur = d?.indicatorTickDurationMs;
+  const durStr = dur != null && Number.isFinite(Number(dur)) ? ` · servidor ${Math.round(Number(dur))}ms` : "";
+  el.textContent = `há ${sec}s (${clock})${durStr}`;
+}
+
+/** Frescor UP/DOWN (CLOB) e Current Price (WS) — lê `latestData[activeTf].polymarket`. */
+function updatePolyFreshDisplay() {
+  const upEl = document.getElementById("dryPolyUpDownAge");
+  const cpEl = document.getElementById("dryPolyCurrentAge");
+  if (!upEl && !cpEl) return;
+  const poly = latestData[activeTf]?.polymarket;
+  if (!poly) {
+    if (upEl) upEl.textContent = "—";
+    if (cpEl) cpEl.textContent = "—";
+    return;
+  }
+  if (upEl) {
+    const at = poly.priceFetchedAt != null ? Number(poly.priceFetchedAt) : null;
+    if (at != null && Number.isFinite(at)) {
+      const sec = Math.max(0, Math.floor((Date.now() - at) / 1000));
+      const stale = !poly.priceFresh;
+      upEl.textContent = stale ? `há ${sec}s · stale` : `há ${sec}s · CLOB`;
+      upEl.className = stale ? "value dim poly-fresh-warn" : "value dim";
+    } else {
+      upEl.textContent = "—";
+      upEl.className = "value dim";
+    }
+  }
+  if (cpEl) {
+    const recv = poly.currentPriceReceivedAt != null ? Number(poly.currentPriceReceivedAt) : null;
+    if (recv != null && Number.isFinite(recv)) {
+      const sec = Math.max(0, Math.floor((Date.now() - recv) / 1000));
+      const fresh = poly.currentPriceFresh;
+      cpEl.textContent = fresh ? `há ${sec}s · WS` : `há ${sec}s · stale`;
+      cpEl.className = fresh ? "value dim" : "value dim poly-fresh-warn";
+    } else if (poly.currentPriceAgeMs != null && Number.isFinite(Number(poly.currentPriceAgeMs))) {
+      const sec = Math.max(0, Math.round(Number(poly.currentPriceAgeMs) / 1000));
+      cpEl.textContent = `~há ${sec}s (tick)`;
+      cpEl.className = poly.currentPriceFresh ? "value dim" : "value dim poly-fresh-warn";
+    } else {
+      cpEl.textContent = "—";
+      cpEl.className = "value dim";
+    }
+  }
+}
+
 function clientLog(event, data = {}, level = "warn") {
   const payload = {
     event,
@@ -252,6 +321,15 @@ function connect() {
         latestEngineErrors[msg.timeframe] = null;
         latestData[msg.timeframe] = msg.data;
         latestDataUpdatedAt[msg.timeframe] = Date.now();
+        ensureIndicatorTickClock();
+        if (msg.data.indicatorTickAt != null) {
+          const t = Number(msg.data.indicatorTickAt);
+          if (Number.isFinite(t)) {
+            _indicatorTickAtMs[msg.timeframe] = t;
+            if (msg.timeframe === activeTf) updateIndicatorTickDisplay();
+          }
+        }
+        if (msg.timeframe === activeTf) updatePolyFreshDisplay();
         if (msg.timeframe === activeTf) renderDataWarning();
         // NOTE: Do NOT use msg.analysis from tick — it's unfiltered (all modes).
         // Wallet data comes from the filtered WS "analysis" response only.
@@ -545,6 +623,7 @@ function renderDashIndicators(d) {
     if (!poly.currentPriceFresh) {
       setHTML("dcurrentPrice", `<span class="color-warn">STALE</span>`);
     }
+    updatePolyFreshDisplay();
   }
 
   const ex = d.exchanges;
@@ -1445,7 +1524,7 @@ function openScalpWalletModal(name) {
       hold: Number.isFinite(Number(t.holdSeconds)) ? `${Number(t.holdSeconds).toFixed(1)}s` : "—",
       statusText: "simulada",
       statusCls: "dry-status-dry",
-      tokenId: t.tokenId || t.token_id || "",
+      tokenId: resolveSimTokenId(t, `${t.windowMin || "?"}m`, w.name),
       pnlValue: pnl,
       pnlText: `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
       contributesToBalance: true
@@ -1601,6 +1680,8 @@ document.querySelectorAll(".tf-tab[data-tf]").forEach(btn => {
     // Re-render from cache immediately
     const d = latestData[activeTf];
     if (d) renderAll(d);
+    updateIndicatorTickDisplay();
+    updatePolyFreshDisplay();
     // Wallets are always visible side-by-side — no switching needed
   });
 });
@@ -2450,7 +2531,8 @@ function populateConfigModal(cfg) {
           <label class="config-scalp-stake" onclick="event.stopPropagation()" title="${escapeAttr(scalpHelp('stakeUsd'))}">
             <span>Stake base $</span>
             <input type="number" class="config-stake-input" data-indicator="${escapeAttr(scalpName)}"
-              value="${stakeVal}" min="0.10" max="1000" step="0.50">
+              value="${stakeVal}" min="0.10" max="1000" step="0.50"
+              onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
           </label>
         </div>
         <div class="config-scalp-groups">
@@ -2470,6 +2552,7 @@ function populateConfigModal(cfg) {
   updateIndicatorCount();
   if (typeof window.renderScalpStrategyUI === "function") {
     window.renderScalpStrategyUI(cfg);
+    syncScalpStakeHeaderFromCanvas();
   }
 }
 
@@ -2529,11 +2612,16 @@ function toggleIndicatorLive(pill) {
     if (!confirmed) return;
   }
   const newLive = !isCurrentlyLive;
-  pill.classList.toggle('on', newLive);
-  pill.textContent = newLive ? '⚡LIVE' : 'SIM';
-  pill.title = newLive ? 'LIVE: ordens reais — clicar para voltar ao SIM' : 'SIM: simulado — clicar para ativar LIVE';
-  const card = pill.closest('.config-indicator-item');
-  if (card) card.classList.toggle('live-mode', newLive);
+  const liveTitle = newLive ? 'LIVE: ordens reais — clicar para voltar ao SIM' : 'SIM: simulado — clicar para ativar LIVE';
+  document.querySelectorAll(`.config-ind-live-pill[data-indicator="${name}"]`).forEach(p => {
+    p.classList.toggle('on', newLive);
+    p.textContent = newLive ? '⚡LIVE' : 'SIM';
+    p.title = liveTitle;
+  });
+  document.querySelectorAll('.config-indicator-item').forEach(card => {
+    const pillIn = card.querySelector('.config-ind-live-pill');
+    if (pillIn && pillIn.dataset.indicator === name) card.classList.toggle('live-mode', newLive);
+  });
 }
 window.toggleIndicatorLive = toggleIndicatorLive;
 
@@ -2604,6 +2692,40 @@ function handleModeToggle(checkbox) {
 }
 window.handleModeToggle = handleModeToggle;
 
+/** Canvas (nó Sizing) é fonte da verdade para stake — espelha no input do cabeçalho Scalp na secção config. */
+function syncScalpStakeHeaderFromCanvas() {
+  for (const name of ["Scalp Force 5m", "Scalp Force 15m"]) {
+    const ws = document.querySelector(`.strategy-workspace[data-scalp-indicator="${name}"]`);
+    const inp = ws?.querySelector('.strategy-node-input[data-node-id="sizing"][data-field="stakeUsd"]');
+    if (!inp) continue;
+    const v = parseFloat(inp.value);
+    if (!Number.isFinite(v) || v < 0.1) continue;
+    const header = document.querySelector(`.config-scalp-stake .config-stake-input[data-indicator="${name}"]`);
+    if (header) header.value = (Math.round(v * 100) / 100).toFixed(2);
+  }
+}
+window.syncScalpStakeHeaderFromCanvas = syncScalpStakeHeaderFromCanvas;
+
+/** Liga o botão Scalp ON/OFF do canvas ao bloco existente na secção de config (mesmo estado ao salvar). */
+function toggleScalpForceFromCanvas(btn) {
+  const name = btn.getAttribute("data-scalp-toggle");
+  const tf = btn.getAttribute("data-tf");
+  if (!name || !tf) return;
+  const sectionId = tf === "15m" ? "configScalpSection15m" : "configScalpSection5m";
+  const section = document.getElementById(sectionId);
+  const block = section?.querySelector(`.config-scalp-block[data-indicator="${name}"]`);
+  if (block && typeof toggleScalpBlock === "function") {
+    toggleScalpBlock(block, name, tf);
+    const cb = block.querySelector('input[type="checkbox"]');
+    const on = Boolean(cb?.checked);
+    btn.classList.toggle("is-on", on);
+    btn.classList.toggle("is-off", !on);
+    btn.textContent = on ? "Scalp ON" : "Scalp OFF";
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+window.toggleScalpForceFromCanvas = toggleScalpForceFromCanvas;
+
 function saveConfig() {
   const enabledIndicators5m  = [];
   const enabledIndicators15m = [];
@@ -2620,6 +2742,8 @@ function saveConfig() {
     enabledIndicators15m.push(cb.dataset.indicator);
   });
   const dryRun = !document.getElementById("configDryRunToggle").checked;
+
+  syncScalpStakeHeaderFromCanvas();
 
   // Collect per-indicator stakes (from either grid — both share same indicator names)
   const stakesPerIndicator = {};

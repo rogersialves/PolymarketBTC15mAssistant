@@ -64,8 +64,17 @@ import {
   buildScalpStripPayload,
   closedTradeToCsvRow,
   computeExchangeMedian,
+  migrateScalpTradesCsvIfNeeded,
   SCALP_CSV_HEADER
 } from "./engines/scalpForce.js";
+import {
+  buildScalpStrategyGraphFromConfig,
+  embedConfigIntoScalpGraph,
+  compileScalpStrategyGraphToPatch,
+  SCALP_DIRECTION_EXCHANGE_KEYS,
+  getScalpDirectionSourceKeys,
+  exchangePricesForMedianFromKeys
+} from "./scalp/strategyGraph.js";
 import { buildSimSignalDirectionStrings } from "./engines/simSignalStrings.js";
 import { getExchangeTickers } from "./data/exchanges.js";
 import { scoreDirection, applyTimeAwareness } from "./engines/probability.js";
@@ -177,8 +186,29 @@ const tradingConfig = {
   enabledIndicators5m:  new Set(), // all disabled by default
   enabledIndicators15m: new Set(), // all disabled by default
   stakesPerIndicator: Object.fromEntries(ALL_INDICATORS.map(n => [n, DEFAULT_STAKE])),
-  indicatorConfigs: buildDefaultIndicatorConfigs()
+  indicatorConfigs: buildDefaultIndicatorConfigs(),
+  /** Persisted strategy canvas per scalp indicator (Direção checkboxes, etc.). */
+  scalpStrategyBindings: {
+    "Scalp Force 5m": { graph: null },
+    "Scalp Force 15m": { graph: null }
+  }
 };
+
+function buildScalpStrategyBindingsPayload() {
+  const out = {};
+  for (const name of SCALP_INDICATORS) {
+    const cfg = getIndicatorConfig(name);
+    const entry = tradingConfig.scalpStrategyBindings[name] || { graph: null };
+    let graph = entry.graph;
+    if (!graph || typeof graph !== "object") {
+      graph = embedConfigIntoScalpGraph(buildScalpStrategyGraphFromConfig(cfg, name), cfg);
+    } else {
+      graph = embedConfigIntoScalpGraph(graph, cfg);
+    }
+    out[name] = { graph };
+  }
+  return out;
+}
 
 function isScalpIndicator(name) {
   return SCALP_INDICATORS.has(name);
@@ -356,6 +386,7 @@ function buildConfigPayload() {
     enabledIndicators15m: [...tradingConfig.enabledIndicators15m],
     stakesPerIndicator,
     indicatorConfigs,
+    scalpStrategyBindings: buildScalpStrategyBindingsPayload(),
     dryRun: polyTrader.dryRun,
     maxStake: polyTrader.maxStake,
     initialized: polyTrader.initialized,
@@ -375,7 +406,8 @@ function buildPersistedTradingConfigPayload() {
     ),
     indicatorConfigs: Object.fromEntries(
       ALL_INDICATORS.map(name => [name, { ...getIndicatorConfig(name) }])
-    )
+    ),
+    scalpStrategyBindings: buildScalpStrategyBindingsPayload()
   };
 }
 
@@ -418,6 +450,25 @@ function applyPersistedTradingConfigPayload(payload) {
       }
       if (Number.isFinite(merged.stakeUsd)) {
         tradingConfig.stakesPerIndicator[name] = merged.stakeUsd;
+      }
+    }
+  }
+
+  if (payload.scalpStrategyBindings && typeof payload.scalpStrategyBindings === "object") {
+    for (const name of SCALP_INDICATORS) {
+      const b = payload.scalpStrategyBindings[name];
+      if (!b || typeof b !== "object") continue;
+      tradingConfig.scalpStrategyBindings[name] = tradingConfig.scalpStrategyBindings[name] || { graph: null };
+      if (b.graph && typeof b.graph === "object" && Array.isArray(b.graph.nodes) && b.graph.nodes.length) {
+        const patch = compileScalpStrategyGraphToPatch(b.graph);
+        if (Object.keys(patch).length) {
+          tradingConfig.indicatorConfigs[name] = mergeIndicatorConfigPatch(
+            name,
+            tradingConfig.indicatorConfigs[name] || { stakeUsd: DEFAULT_STAKE },
+            patch
+          );
+        }
+        tradingConfig.scalpStrategyBindings[name].graph = b.graph;
       }
     }
   }
@@ -1177,6 +1228,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
   const scalpIndicatorName = windowMinutes === 15 ? "Scalp Force 15m" : "Scalp Force 5m";
   const scalpRuntime = createScalpRuntime(scalpIndicatorName, windowMinutes);
   const scalpCsvPath = `./logs/scalp_trades_${tfLabel}.csv`;
+  migrateScalpTradesCsvIfNeeded(scalpCsvPath);
   const scalpWallet = readScalpWalletFromCsv(scalpCsvPath, scalpIndicatorName);
   const scalpCumulative = { [scalpIndicatorName]: scalpWallet.balance };
 
@@ -1422,11 +1474,10 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     const binanceVsOracle = (spotPrice !== null && chainlinkPrice !== null && Number.isFinite(spotPrice) && Number.isFinite(chainlinkPrice)) ? spotPrice - chainlinkPrice : null;
     const taVsOracle = (taLastPrice !== null && chainlinkPrice !== null && Number.isFinite(taLastPrice) && Number.isFinite(chainlinkPrice))
       ? taLastPrice - chainlinkPrice : null;
-    const exchangePrices = [
-      exchanges.binance.price, exchanges.coinbase.price, exchanges.kraken.price,
-      exchanges.bybit.price, exchanges.okx.price
-    ].filter(p => p !== null && Number.isFinite(p));
-    const oracleSpreadPct = (exchangePrices.length >= 2 && chainlinkPrice !== null && Number.isFinite(chainlinkPrice) && chainlinkPrice > 0) ? ((Math.max(...exchangePrices) - Math.min(...exchangePrices)) / chainlinkPrice) * 100 : null;
+    const allOracleExchangePrices = SCALP_DIRECTION_EXCHANGE_KEYS.map(k => exchanges[k]?.price)
+      .filter(p => p !== null && Number.isFinite(p));
+    const oracleSpreadPct = (allOracleExchangePrices.length >= 2 && chainlinkPrice !== null && Number.isFinite(chainlinkPrice) && chainlinkPrice > 0)
+      ? ((Math.max(...allOracleExchangePrices) - Math.min(...allOracleExchangePrices)) / chainlinkPrice) * 100 : null;
 
     const liquidityAmount = polymarketData.ok ? (Number(polymarketData.market?.liquidityNum) || Number(polymarketData.market?.liquidity) || null) : null;
     const currentPriceForPolymarket = polymarketCurrentPrice;
@@ -1698,10 +1749,11 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
     const scalpEnabled = windowMinutes === 5
       ? tradingConfig.enabledIndicators5m.has(scalpIndicatorName)
       : tradingConfig.enabledIndicators15m.has(scalpIndicatorName);
-    const scalpExchangeMedian = computeExchangeMedian([
-      exchanges.binance.price, exchanges.coinbase.price, exchanges.kraken.price,
-      exchanges.bybit.price, exchanges.okx.price
-    ]);
+    const dirGraphFull = tradingConfig.scalpStrategyBindings[scalpIndicatorName]?.graph ?? null;
+    const exchangeMedianSources = getScalpDirectionSourceKeys(dirGraphFull, scalpConfig, scalpIndicatorName);
+    const { prices: directionExchangePrices, keysWithPrice: exchangeMedianSourcesWithPrice }
+      = exchangePricesForMedianFromKeys(exchanges, exchangeMedianSources);
+    const scalpExchangeMedian = computeExchangeMedian(directionExchangePrices);
     const scalpStatusBefore = scalpRuntime.status;
     const scalpAdvance = advanceScalp(scalpRuntime, {
       nowMs: Date.now(),
@@ -2010,6 +2062,7 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
           currentPrice: currentPriceForPolymarket, priceDelta: priceToBeatDelta,
           currentPriceFresh: polymarketCurrentFresh,
           currentPriceAgeMs: polymarketLiveAgeMs,
+          currentPriceReceivedAt: polymarketLiveReceivedAt,
           currentPriceSource: polymarketCurrentFresh ? "polymarket_ws" : "stale_or_unavailable"
         },
         exchanges: {
@@ -2024,7 +2077,9 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
           binanceVsOracle,
           taVsOracle,
           spreadPct: oracleSpreadPct,
-          indicatorCandleSource: indicatorSourceEffective
+          indicatorCandleSource: indicatorSourceEffective,
+          exchangeMedianSources,
+          exchangeMedianSourcesWithPrice
         },
         feedSources: buildFeedSourcesSnapshot({
           now: Date.now(),
@@ -2051,7 +2106,9 @@ function createTimeframeEngine(windowMinutes, sharedStreams) {
             }
           }
         },
-        trading: polyTrader.getStatus()
+        trading: polyTrader.getStatus(),
+        indicatorTickAt: Date.now(),
+        indicatorTickDurationMs: tickDurationMs
       }
       };
       if (analysisChanged) payload.analysis = cachedAnalysis;
@@ -2786,6 +2843,24 @@ async function main() {
             const scalpChanges = Object.keys(data.indicatorConfigs).filter(n => SCALP_INDICATORS.has(n));
             if (scalpChanges.length) {
               console.log(`⚙️  [Config] scalp params atualizados: ${scalpChanges.join(", ")}`);
+            }
+          }
+          if (data.scalpStrategyBindings && typeof data.scalpStrategyBindings === "object") {
+            for (const name of SCALP_INDICATORS) {
+              const b = data.scalpStrategyBindings[name];
+              if (!b || typeof b !== "object") continue;
+              tradingConfig.scalpStrategyBindings[name] = tradingConfig.scalpStrategyBindings[name] || { graph: null };
+              if (b.graph && typeof b.graph === "object" && Array.isArray(b.graph.nodes) && b.graph.nodes.length) {
+                const patch = compileScalpStrategyGraphToPatch(b.graph);
+                if (Object.keys(patch).length) {
+                  tradingConfig.indicatorConfigs[name] = mergeIndicatorConfigPatch(
+                    name,
+                    tradingConfig.indicatorConfigs[name] || { stakeUsd: DEFAULT_STAKE },
+                    patch
+                  );
+                }
+                tradingConfig.scalpStrategyBindings[name].graph = b.graph;
+              }
             }
           }
           // Update DRY_RUN mode

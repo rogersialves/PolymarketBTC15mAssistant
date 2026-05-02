@@ -73,6 +73,7 @@ import {
   buildScalpStripPayload,
   closedTradeToCsvRow,
   computeExchangeMedian,
+  migrateScalpTradesCsvIfNeeded,
   SCALP_CSV_HEADER
 } from "./engines/scalpForce.js";
 import { buildSimSignalDirectionStrings } from "./engines/simSignalStrings.js";
@@ -91,7 +92,10 @@ import { mergeRuntimeScalpTradesIntoWallet } from "./scalp/mergeRuntimeScalpTrad
 import {
   buildScalpStrategyGraphFromConfig,
   embedConfigIntoScalpGraph,
-  compileScalpStrategyGraphToPatch
+  compileScalpStrategyGraphToPatch,
+  SCALP_DIRECTION_EXCHANGE_KEYS,
+  getScalpDirectionSourceKeys,
+  exchangePricesForMedianFromKeys
 } from "./scalp/strategyGraph.js";
 import {
   coerceScalpBindingFamilies,
@@ -700,6 +704,7 @@ function createScalpEngine(windowMinutes, sharedStreams) {
   const scalpIndicatorName = windowMinutes === 15 ? SCALP_15M : SCALP_5M;
   const scalpRuntime = createScalpRuntime(scalpIndicatorName, windowMinutes);
   const scalpCsvPath = `./logs/scalp_trades_${tfLabel}.csv`;
+  migrateScalpTradesCsvIfNeeded(scalpCsvPath);
   const scalpWallet = readScalpWalletFromCsv(scalpCsvPath, scalpIndicatorName);
   const scalpCumulative = { [scalpIndicatorName]: scalpWallet.balance };
 
@@ -1001,13 +1006,17 @@ function createScalpEngine(windowMinutes, sharedStreams) {
         ? "Nesta série (slug btc-updown-5m/15m), a API Gamma não inclui priceToBeat no mercado e o título só tem o intervalo de tempo. O _next/data da página também não traz priceToBeat para a janela ativa. O PTB do site segue o Chainlink via stream Polymarket: usamos o primeiro tick do WS com horário ≥ abertura (stream abertura). A linha «Chainlink (timestamp do slug)» é o agregador on-chain na Polygon — pode afastar-se alguns dólares do stream."
         : null;
 
-      // Exchange median (usado pelo Scalp para direção)
+      // Exchange median (usado pelo Scalp para direção) — mediana só das bolsas
+      // marcadas no canvas (nó Direção); spread oracle continua nas cinco feeds.
       const exchanges = getExchangeTickers();
-      const exchangePrices = [
-        exchanges.binance.price, exchanges.coinbase.price, exchanges.kraken.price,
-        exchanges.bybit.price, exchanges.okx.price
-      ].filter(p => p !== null && Number.isFinite(p));
-      const scalpExchangeMedian = computeExchangeMedian(exchangePrices);
+      const scalpCfgForMedian = getScalpConfig(scalpIndicatorName);
+      const dirGraph = tradingConfig.scalpStrategyBindings[scalpIndicatorName]?.graph ?? null;
+      const exchangeMedianSources = getScalpDirectionSourceKeys(dirGraph, scalpCfgForMedian, scalpIndicatorName);
+      const { prices: directionExchangePrices, keysWithPrice: exchangeMedianSourcesWithPrice }
+        = exchangePricesForMedianFromKeys(exchanges, exchangeMedianSources);
+      const scalpExchangeMedian = computeExchangeMedian(directionExchangePrices);
+      const allOracleExchangePrices = SCALP_DIRECTION_EXCHANGE_KEYS.map(k => exchanges[k]?.price)
+        .filter(p => p !== null && Number.isFinite(p));
 
       const oracleLagMs = (binanceTickTs !== null && chainlinkTickTs !== null)
         ? Math.abs(binanceTickTs - chainlinkTickTs) : null;
@@ -1017,9 +1026,9 @@ function createScalpEngine(windowMinutes, sharedStreams) {
       const taVsOracle = (taLastPrice !== null && chainlinkPrice !== null
         && Number.isFinite(taLastPrice) && Number.isFinite(chainlinkPrice))
         ? taLastPrice - chainlinkPrice : null;
-      const oracleSpreadPct = (exchangePrices.length >= 2 && chainlinkPrice !== null
+      const oracleSpreadPct = (allOracleExchangePrices.length >= 2 && chainlinkPrice !== null
         && Number.isFinite(chainlinkPrice) && chainlinkPrice > 0)
-        ? ((Math.max(...exchangePrices) - Math.min(...exchangePrices)) / chainlinkPrice) * 100 : null;
+        ? ((Math.max(...allOracleExchangePrices) - Math.min(...allOracleExchangePrices)) / chainlinkPrice) * 100 : null;
 
       const liquidityAmount = polymarketData.ok
         ? (Number(polymarketData.market?.liquidityNum) || Number(polymarketData.market?.liquidity) || null)
@@ -1037,7 +1046,7 @@ function createScalpEngine(windowMinutes, sharedStreams) {
         : emaCrossResult.bullish ? "bullish" : "bearish";
 
       // ── Scalp Force advance ──
-      const scalpConfig = getScalpConfig(scalpIndicatorName);
+      const scalpConfig = scalpCfgForMedian;
       const scalpEnabled = isScalpEnabled(scalpIndicatorName);
       const scalpStatusBefore = scalpRuntime.status;
 
@@ -1253,6 +1262,8 @@ function createScalpEngine(windowMinutes, sharedStreams) {
             priceDelta: priceToBeatDelta,
             currentPriceFresh: polymarketCurrentFresh,
             currentPriceAgeMs: polymarketLiveAgeMs,
+            /** Epoch ms no servidor: último WS Polymarket live recebido (para “há Xs” no cliente). */
+            currentPriceReceivedAt: polymarketLiveReceivedAt,
             currentPriceSource: polymarketCurrentFresh ? "polymarket_ws" : "stale_or_unavailable"
           },
           exchanges: {
@@ -1267,7 +1278,9 @@ function createScalpEngine(windowMinutes, sharedStreams) {
             binanceVsOracle,
             taVsOracle,
             spreadPct: oracleSpreadPct,
-            indicatorCandleSource: indicatorSourceEffective
+            indicatorCandleSource: indicatorSourceEffective,
+            exchangeMedianSources,
+            exchangeMedianSourcesWithPrice
           },
           feedSources: buildFeedSourcesSnapshot({
             now: Date.now(),
@@ -1292,7 +1305,11 @@ function createScalpEngine(windowMinutes, sharedStreams) {
               }
             }
           },
-          trading: polyTrader.getStatus()
+          trading: polyTrader.getStatus(),
+          /** Momento em que este pacote de indicadores foi emitido (ms desde epoch). */
+          indicatorTickAt: Date.now(),
+          /** Duração do tick no servidor (útil se “há Xs” cresce: tick lento ou skip). */
+          indicatorTickDurationMs: tickDurationMs
         }
       };
       lastTickPayload = payload;
@@ -1382,6 +1399,20 @@ function setupWebSocketHandlers() {
               if (!SCALP_INDICATORS.includes(name)) continue;
               tradingConfig.indicatorConfigs[name] = mergeScalpConfigPatch(
                 tradingConfig.indicatorConfigs[name], patch
+              );
+            }
+          }
+
+          // Stake base no cabeçalho Scalp usa class config-stake-input → stakesPerIndicator (igual server.js).
+          if (data.stakesPerIndicator && typeof data.stakesPerIndicator === "object") {
+            for (const [name, val] of Object.entries(data.stakesPerIndicator)) {
+              if (!SCALP_INDICATORS.includes(name)) continue;
+              const parsed = parseFloat(val);
+              if (!Number.isFinite(parsed) || parsed < 0.1) continue;
+              const rounded = Math.round(parsed * 100) / 100;
+              tradingConfig.indicatorConfigs[name] = mergeScalpConfigPatch(
+                tradingConfig.indicatorConfigs[name],
+                { stakeUsd: rounded }
               );
             }
           }

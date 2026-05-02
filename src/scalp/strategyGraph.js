@@ -231,3 +231,57 @@ export function embedConfigIntoScalpGraph(graph, cfg) {
   }
   return g;
 }
+
+/** Spot venue keys supported for Direção (median vs PTB). Keep in sync with `getExchangeTickers()`. */
+export const SCALP_DIRECTION_EXCHANGE_KEYS = Object.freeze([
+  "binance",
+  "coinbase",
+  "kraken",
+  "bybit",
+  "okx"
+]);
+
+/**
+ * Resolve which exchange keys participate in the scalp "bolsas" median.
+ * Uses persisted canvas graph when provided; otherwise embeds defaults from flat cfg.
+ * @param {object|null|undefined} graph Saved strategy graph (nodes include entry_direction), or null
+ * @param {object} cfg Flat scalp indicator config (for embed fallback)
+ * @param {string} indicatorName e.g. "Scalp Force 5m"
+ * @returns {string[]} Ordered unique keys from the Direção node (subset of SCALP_DIRECTION_EXCHANGE_KEYS)
+ */
+export function getScalpDirectionSourceKeys(graph, cfg, indicatorName) {
+  const baseCfg = cfg && typeof cfg === "object" ? cfg : {};
+  const ind = String(indicatorName || "");
+  let g = graph && typeof graph === "object" && Array.isArray(graph.nodes) ? graph : null;
+  if (!g) {
+    g = embedConfigIntoScalpGraph(buildScalpStrategyGraphFromConfig(baseCfg, ind), baseCfg);
+  } else {
+    g = embedConfigIntoScalpGraph(g, baseCfg);
+  }
+  const node = g.nodes?.find(n => n?.id === SCALP_GRAPH_NODE_IDS.ENTRY_DIRECTION);
+  const raw = Array.isArray(node?.data?.directionSources) ? node.data.directionSources : [];
+  const normalized = [...new Set(
+    raw.map(s => String(s).toLowerCase().trim()).filter(k => SCALP_DIRECTION_EXCHANGE_KEYS.includes(k))
+  )];
+  if (normalized.length === 0) return [...SCALP_DIRECTION_EXCHANGE_KEYS];
+  return normalized;
+}
+
+/**
+ * Collect finite spot prices for median, in canvas key order.
+ * @param {Record<string, { price?: number|null }>} exchanges Snapshot from getExchangeTickers()
+ * @param {string[]} keys From getScalpDirectionSourceKeys
+ * @returns {{ prices: number[], keysWithPrice: string[] }}
+ */
+export function exchangePricesForMedianFromKeys(exchanges, keys) {
+  const prices = [];
+  const keysWithPrice = [];
+  for (const k of keys) {
+    const p = exchanges?.[k]?.price;
+    if (p !== null && Number.isFinite(p) && p > 0) {
+      prices.push(p);
+      keysWithPrice.push(k);
+    }
+  }
+  return { prices, keysWithPrice };
+}
