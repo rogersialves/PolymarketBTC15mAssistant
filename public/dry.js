@@ -12,6 +12,10 @@ let latestAnalysis = { "5m": null, "15m": null };
 let latestEngineErrors = { "5m": null, "15m": null };
 let ws = null;
 let reconnectTimer = null;
+/** 60s analyze refresh on Scalp Monitor only; cleared on reconnect. */
+let analyzeRefreshIntervalId = null;
+/** Dedicated settings page (`settings.html`); WebSocket handles config only. */
+const isSettingsPage = document.body?.dataset?.page === "settings";
 let tradeLog = []; // Accumulated trade log (ALL timeframes)
 let seenTradeIds = new Set();
 let walletData = { "5m": [], "15m": [] }; // Stored per-timeframe for modal access
@@ -176,23 +180,26 @@ function connect() {
   ws = new WebSocket(`${protocol}//${location.host}`);
 
   ws.onopen = () => {
-    document.getElementById("connectionStatus").className = "status-dot connected";
-    // Request wallet analysis strictly for DRY_RUN mode.
-    ws.send(JSON.stringify({ action: "analyze", timeframe: "5m",  mode: "DRY_RUN" }));
-    ws.send(JSON.stringify({ action: "analyze", timeframe: "15m", mode: "DRY_RUN" }));
-  };
-
-  // Periodically refresh wallet analysis (every 60s) to stay in sync
-  // even when the server resolves sim trades between candle boundaries.
-  setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    const conn = document.getElementById("connectionStatus");
+    if (conn) conn.className = "status-dot connected";
+    if (isSettingsPage) {
+      ws.send(JSON.stringify({ action: "getConfig" }));
+    } else {
       ws.send(JSON.stringify({ action: "analyze", timeframe: "5m",  mode: "DRY_RUN" }));
       ws.send(JSON.stringify({ action: "analyze", timeframe: "15m", mode: "DRY_RUN" }));
+      if (analyzeRefreshIntervalId) clearInterval(analyzeRefreshIntervalId);
+      analyzeRefreshIntervalId = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action: "analyze", timeframe: "5m",  mode: "DRY_RUN" }));
+          ws.send(JSON.stringify({ action: "analyze", timeframe: "15m", mode: "DRY_RUN" }));
+        }
+      }, 60_000);
     }
-  }, 60_000);
+  };
 
   ws.onclose = () => {
-    document.getElementById("connectionStatus").className = "status-dot disconnected";
+    const conn = document.getElementById("connectionStatus");
+    if (conn) conn.className = "status-dot disconnected";
     clientLog("ws_close", { activeTf, lastGoodAt: latestDataUpdatedAt[activeTf] }, "warn");
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, 2000);
@@ -206,6 +213,13 @@ function connect() {
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
+      if (msg.type === "config" && msg.data) {
+        currentConfig = msg.data;
+        updateTradingBadge(msg.data);
+        if (document.getElementById("configDryRunToggle")) populateConfigModal(msg.data);
+      }
+      if (isSettingsPage) return;
+
       if (msg.type === "tick" && msg.data) {
         latestEngineErrors[msg.timeframe] = null;
         latestData[msg.timeframe] = msg.data;
@@ -247,15 +261,6 @@ function connect() {
           ageMs: msg.ageMs,
           loopId: msg.loopId
         }, msg.status === "stalled" ? "error" : "warn");
-      }
-      // Config updates (broadcast from server)
-      if (msg.type === "config" && msg.data) {
-        currentConfig = msg.data;
-        updateTradingBadge(msg.data);
-        // If config modal is open, refresh it
-        if (document.getElementById("configOverlay")?.classList.contains("open")) {
-          populateConfigModal(msg.data);
-        }
       }
     } catch { /* ignore */ }
   };
@@ -2213,16 +2218,12 @@ window.openWalletModal = openWalletModalUnified;
 let currentConfig = null;
 
 function openConfigModal() {
-  // Request fresh config from server
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ action: "getConfig" }));
-  }
-  document.getElementById("configOverlay").classList.add("open");
+  window.location.href = "/settings.html";
 }
 window.openConfigModal = openConfigModal;
 
 function closeConfigModal() {
-  document.getElementById("configOverlay").classList.remove("open");
+  document.getElementById("configOverlay")?.classList.remove("open");
 }
 window.closeConfigModal = closeConfigModal;
 
@@ -2621,9 +2622,25 @@ function saveConfig() {
       dryRun
     }));
   }
-  closeConfigModal();
+  if (isSettingsPage) {
+    showSettingsSaveFeedback();
+  } else {
+    closeConfigModal();
+  }
 }
 window.saveConfig = saveConfig;
+
+function showSettingsSaveFeedback() {
+  const el = document.getElementById("settingsSaveHint");
+  if (!el) return;
+  el.textContent = "Configuração salva.";
+  el.hidden = false;
+  if (showSettingsSaveFeedback._t) clearTimeout(showSettingsSaveFeedback._t);
+  showSettingsSaveFeedback._t = setTimeout(() => {
+    el.hidden = true;
+    el.textContent = "";
+  }, 3500);
+}
 
 function updateTradingBadge(cfg) {
   const badge = document.getElementById("tradingBadge");

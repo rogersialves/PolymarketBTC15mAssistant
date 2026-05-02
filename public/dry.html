@@ -8,9 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="dry.css?v=20260502-ptb-stream-open">
+  <link rel="stylesheet" href="dry.css?v=20260502-settings-page">
 </head>
-<body>
+<body data-page="dry">
   <!-- ── Top Navigation ── -->
   <header id="topbar">
     <div class="topbar-left">
@@ -23,7 +23,7 @@
       <a href="/" class="tf-tab tf-tab-link" title="Voltar ao Dashboard">📊 Dashboard</a>
       <a href="/dry.html" class="tf-tab tf-tab-link active-page">📡 Scalp Monitor</a>
       <a href="/resolve.html" class="tf-tab tf-tab-link">🔄 Resolve</a>
-      <button class="tf-tab tf-tab-config" onclick="openConfigModal()" title="Configurações">⚙️ Config</button>
+      <a href="/settings.html" class="tf-tab tf-tab-config" title="Configurações">⚙️ Config</a>
     </nav>
     <div class="topbar-right">
       <span id="tradingBadge" class="trading-badge dry-run">📡 SIM</span>
@@ -219,61 +219,6 @@
     </section>
   </main>
 
-  <!-- ── Config Modal ── -->
-  <div id="configOverlay" class="config-overlay" onclick="closeConfigModal()">
-    <div class="config-modal" onclick="event.stopPropagation()">
-      <div class="config-header">
-        <h2>⚙️ Configurações de Trading</h2>
-        <button class="config-close" onclick="closeConfigModal()">✕</button>
-      </div>
-
-      <!-- Mode Toggle -->
-      <div class="config-section">
-        <h3 class="config-section-title">Modo de Operação</h3>
-        <div class="config-mode-row">
-          <div class="config-mode-info">
-            <span id="configModeLabel" class="config-mode-label">📡 SCALP MONITOR (SIM)</span>
-            <span id="configModeDesc" class="config-mode-desc">Ordens simuladas — sem execução real</span>
-          </div>
-          <label class="config-switch config-switch-danger">
-            <input type="checkbox" id="configDryRunToggle" onchange="handleModeToggle(this)">
-            <span class="config-slider"></span>
-          </label>
-        </div>
-        <div id="configWalletInfo" class="config-wallet-info"></div>
-      </div>
-
-      <!-- Indicators -->
-      <div class="config-section">
-        <h3 class="config-section-title">Indicadores Ativos</h3>
-
-        <!-- Timeframe tabs -->
-        <div class="config-tf-tabs">
-          <button class="config-tf-tab active" id="tab5m"  onclick="switchIndicatorTab('5m')">₿ 5 min</button>
-          <button class="config-tf-tab"        id="tab15m" onclick="switchIndicatorTab('15m')">₿ 15 min</button>
-          <span class="config-section-count" id="configIndicatorCount"></span>
-          <button class="config-select-all"  onclick="toggleAllIndicators(true)">Todos</button>
-          <button class="config-select-none" onclick="toggleAllIndicators(false)">Nenhum</button>
-        </div>
-
-        <div id="configIndicatorGrid5m"  class="config-indicator-grid config-tab-pane active-pane"><!-- JS --></div>
-        <div id="configIndicatorGrid15m" class="config-indicator-grid config-tab-pane"><!-- JS --></div>
-      </div>
-
-      <!-- Scalp Force Advanced Parameters -->
-      <div class="config-section">
-        <h3 class="config-section-title">⚡ Scalp Force — Parâmetros Avançados <span class="dry-sub-hint">Simulação dedicada</span></h3>
-        <div id="configScalpSection5m"  class="config-scalp-section config-tab-pane active-pane"><!-- JS --></div>
-        <div id="configScalpSection15m" class="config-scalp-section config-tab-pane"><!-- JS --></div>
-      </div>
-
-      <!-- Save -->
-      <div class="config-footer">
-        <button class="config-save-btn" onclick="saveConfig()">💾 Salvar Configuração</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="dry.js?v=20260502-live-klines"></script>
+  <script src="dry.js?v=20260502-settings-page"></script>
 </body>
 </html>

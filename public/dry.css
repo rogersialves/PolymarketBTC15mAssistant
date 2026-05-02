@@ -1596,6 +1596,19 @@ body::-webkit-scrollbar-thumb:hover { background: var(--border-primary); }
   border-color: rgba(255, 183, 77, 0.4) !important;
 }
 
+a.tf-tab.tf-tab-config {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+.tf-tab.tf-tab-config.active-page {
+  background: rgba(255, 183, 77, 0.16) !important;
+  border-color: rgba(255, 183, 77, 0.5) !important;
+  color: #ffcc80 !important;
+  box-shadow: 0 0 14px rgba(255, 183, 77, 0.2);
+}
+
 @media (max-width: 600px) {
   .config-modal { width: 95%; }
   .config-indicator-grid { grid-template-columns: 1fr 1fr; }
@@ -2313,4 +2326,97 @@ body::-webkit-scrollbar-thumb:hover { background: var(--border-primary); }
   font-weight: 700;
   letter-spacing: 0.3px;
   vertical-align: middle;
+}
+
+/* ── Settings page (full-screen config; Stitch-inspired hierarchy) ── */
+.settings-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -20%, rgba(100, 181, 246, 0.12), transparent 55%),
+    linear-gradient(180deg, #0a0f14 0%, #0e1623 40%, #0c1219 100%);
+}
+.settings-main {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 20px 20px 48px;
+}
+.settings-hero {
+  margin-bottom: 22px;
+  padding: 8px 4px 4px;
+}
+.settings-hero-kicker {
+  margin: 0 0 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(100, 181, 246, 0.75);
+}
+.settings-hero-title {
+  margin: 0 0 10px;
+  font-family: "Inter", sans-serif;
+  font-size: clamp(22px, 3.2vw, 28px);
+  font-weight: 700;
+  color: #eceff1;
+  letter-spacing: -0.02em;
+}
+.settings-hero-desc {
+  margin: 0;
+  max-width: 52ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.55);
+}
+.settings-panel.config-modal {
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  border-radius: 20px;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(100, 181, 246, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.settings-config-header.config-header {
+  padding-top: 22px;
+}
+.settings-back-link {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #64b5f6;
+  text-decoration: none;
+  padding: 8px 12px;
+  border: 1px solid rgba(100, 181, 246, 0.25);
+  border-radius: 8px;
+  transition: background 0.2s, border-color 0.2s;
+}
+.settings-back-link:hover {
+  background: rgba(100, 181, 246, 0.1);
+  border-color: rgba(100, 181, 246, 0.45);
+  color: #90caf9;
+}
+.settings-config-footer.config-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px 20px;
+  padding-bottom: 22px;
+}
+.settings-save-hint {
+  font-size: 13px;
+  font-weight: 600;
+  color: #81c784;
+  margin-right: auto;
+}
+@media (max-width: 600px) {
+  .settings-main { padding: 14px 12px 36px; }
+  .settings-config-footer.config-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .settings-save-hint { margin-right: 0; text-align: center; }
 }

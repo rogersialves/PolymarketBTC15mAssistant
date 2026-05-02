@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configurações — Scalp Monitor</title>
+  <meta name="description" content="Configuração de estratégia e indicadores — Scalp Monitor">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="dry.css?v=20260502-settings-page">
+</head>
+<body data-page="settings" class="settings-page">
+  <header id="topbar">
+    <div class="topbar-left">
+      <h1 class="logo">₿ Polymarket <span class="logo-accent">SCALP MONITOR</span></h1>
+    </div>
+    <nav class="tf-tabs">
+      <span class="tf-divider"></span>
+      <a href="/" class="tf-tab tf-tab-link" title="Voltar ao Dashboard">📊 Dashboard</a>
+      <a href="/dry.html" class="tf-tab tf-tab-link" title="Scalp Monitor">📡 Scalp Monitor</a>
+      <a href="/resolve.html" class="tf-tab tf-tab-link">🔄 Resolve</a>
+      <a href="/settings.html" class="tf-tab tf-tab-config active-page" title="Configurações">⚙️ Config</a>
+    </nav>
+    <div class="topbar-right">
+      <span id="tradingBadge" class="trading-badge dry-run">📡 SIM</span>
+      <span id="connectionStatus" class="status-dot disconnected"></span>
+      <span id="sessionInfo" class="session-text">Configurações</span>
+    </div>
+  </header>
+
+  <main class="settings-main">
+    <div class="settings-hero">
+      <p class="settings-hero-kicker">Polymarket · BTC</p>
+      <h1 class="settings-hero-title">Robot Strategy Configuration</h1>
+      <p class="settings-hero-desc">Modo global, indicadores ativos e parâmetros Scalp Force. As alterações são enviadas ao servidor ao salvar.</p>
+    </div>
+
+    <div class="config-modal settings-panel" onclick="event.stopPropagation()">
+      <div class="config-header settings-config-header">
+        <h2>⚙️ Configurações de Trading</h2>
+        <a href="/dry.html" class="settings-back-link" title="Voltar ao monitor">← Monitor</a>
+      </div>
+
+      <div class="config-section">
+        <h3 class="config-section-title">Modo de Operação</h3>
+        <div class="config-mode-row">
+          <div class="config-mode-info">
+            <span id="configModeLabel" class="config-mode-label">📡 SCALP MONITOR (SIM)</span>
+            <span id="configModeDesc" class="config-mode-desc">Ordens simuladas — sem execução real</span>
+          </div>
+          <label class="config-switch config-switch-danger">
+            <input type="checkbox" id="configDryRunToggle" onchange="handleModeToggle(this)">
+            <span class="config-slider"></span>
+          </label>
+        </div>
+        <div id="configWalletInfo" class="config-wallet-info"></div>
+      </div>
+
+      <div class="config-section">
+        <h3 class="config-section-title">Indicadores Ativos</h3>
+        <div class="config-tf-tabs">
+          <button type="button" class="config-tf-tab active" id="tab5m" onclick="switchIndicatorTab('5m')">₿ 5 min</button>
+          <button type="button" class="config-tf-tab" id="tab15m" onclick="switchIndicatorTab('15m')">₿ 15 min</button>
+          <span class="config-section-count" id="configIndicatorCount"></span>
+          <button type="button" class="config-select-all" onclick="toggleAllIndicators(true)">Todos</button>
+          <button type="button" class="config-select-none" onclick="toggleAllIndicators(false)">Nenhum</button>
+        </div>
+        <div id="configIndicatorGrid5m" class="config-indicator-grid config-tab-pane active-pane"></div>
+        <div id="configIndicatorGrid15m" class="config-indicator-grid config-tab-pane"></div>
+      </div>
+
+      <div class="config-section">
+        <h3 class="config-section-title">⚡ Scalp Force — Parâmetros Avançados <span class="dry-sub-hint">Simulação dedicada</span></h3>
+        <div id="configScalpSection5m" class="config-scalp-section config-tab-pane active-pane"></div>
+        <div id="configScalpSection15m" class="config-scalp-section config-tab-pane"></div>
+      </div>
+
+      <div class="config-footer settings-config-footer">
+        <span id="settingsSaveHint" class="settings-save-hint" hidden aria-live="polite"></span>
+        <button type="button" class="config-save-btn" onclick="saveConfig()">💾 Salvar Configuração</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="dry.js?v=20260502-settings-page"></script>
+</body>
+</html>
